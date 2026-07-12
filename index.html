@@ -333,19 +333,32 @@ input.field-input{
 'use strict';
 
 /* ============================================================================
- * CONFIG — edit these for your own deployment. GAS_URL/TOKEN come from your
- * Apps Script deployment (see Code.gs bottom-of-file deploy instructions).
- * locations/groups are seeded with demo data and get overwritten by the live
- * ตั้งค่า/นักเรียน sheet data on load (and cached to localStorage for offline).
- * aliases[] is the one thing you must hand-maintain here when you add a new
- * location or group in the sheet (see README "How to add a new location/group").
+ * CONFIG — edit GAS_URL/TOKEN/TEACHER_NAME/BANK_NAME/ACCOUNT_NUMBER for your
+ * own deployment (see Code.gs bottom-of-file deploy instructions).
+ * locations/groups/students start EMPTY on purpose — this is a from-scratch
+ * deployment with no seeded demo data. They get populated from the live
+ * ตั้งค่า/นักเรียน sheet on first load and cached to localStorage after that
+ * (see refreshConfig()). aliases[] is the one thing you must hand-maintain
+ * here when you add a new location or group in the sheet (see README
+ * "How to add a new location/group").
  * ========================================================================== */
 const CONFIG = {
-  GAS_URL: 'https://script.google.com/macros/s/PUT_YOUR_DEPLOYMENT_ID_HERE/exec',
-  TOKEN: 'PUT_YOUR_TUTOR_APP_TOKEN_HERE',
+  GAS_URL: 'https://script.google.com/macros/s/PUT_YOUR_DEPLOYMENT_ID_HERE/exec', // fill in after Code.gs deploy step 5
+  TOKEN: 'PUT_YOUR_TUTOR_APP_TOKEN_HERE', // must match Script Property TUTOR_APP_TOKEN in Code.gs deploy step 4 — do NOT commit your real value to this public repo (see Code.gs comment)
   TEACHER_NAME: '[ชื่อครู]',
   BANK_NAME: '[ชื่อธนาคาร]',
   ACCOUNT_NUMBER: '[เลขบัญชี]',
+  locations: [],
+  groups: [],
+  students: []
+};
+
+/* ============================================================================
+ * DEMO_CONFIG — fixture data for runParserTests() ONLY. Never used by the
+ * running app; kept separate so production CONFIG can start genuinely empty
+ * without breaking the parser test suite.
+ * ========================================================================== */
+const DEMO_CONFIG = {
   locations: [
     { name: 'Genius K.Joy', rent: 500, aliases: ['จอย', 'genius', 'geniuskjoy'] },
     { name: 'บ้านครูมด', rent: 700, aliases: ['มด', 'ครูมด', 'บ้านครูมด'] },
@@ -1337,23 +1350,23 @@ function runParserTests() {
   let r;
 
   // 1. missing students -> picker, not error/guess
-  r = Parser.parseCommand('กลุ่ม1 จอย 2ชม', CONFIG, TODAY);
+  r = Parser.parseCommand('กลุ่ม1 จอย 2ชม', DEMO_CONFIG, TODAY);
   check('1: pick-students triggered', r.kind === 'pick-students', r);
 
   // 2. fully resolved
-  r = Parser.parseCommand('กลุ่ม1 มด 2ชม Heng,Pim,Kee', CONFIG, TODAY);
+  r = Parser.parseCommand('กลุ่ม1 มด 2ชม Heng,Pim,Kee', DEMO_CONFIG, TODAY);
   check('2: fully resolved', r.kind === 'confirm' && r.mode === 1 && r.students.length === 3, r);
 
   // 3. subject alias
-  r = Parser.parseCommand('คณิต จอย 1.5ชม Heng Pim', CONFIG, TODAY);
+  r = Parser.parseCommand('คณิต จอย 1.5ชม Heng Pim', DEMO_CONFIG, TODAY);
   check('3: subject alias -> กลุ่ม 1', r.kind === 'confirm' && r.group === 'กลุ่ม 1' && r.hours === 1.5, r);
 
   // 4. yesterday
-  r = Parser.parseCommand('ฟิสิกส์ มด 2ชม เมื่อวาน Nut Toei', CONFIG, TODAY);
+  r = Parser.parseCommand('ฟิสิกส์ มด 2ชม เมื่อวาน Nut Toei', DEMO_CONFIG, TODAY);
   check('4: yesterday date', r.kind === 'confirm' && r.date === addDays(TODAY, -1), r);
 
   // 5. last Monday
-  r = Parser.parseCommand('เคมี สตบ 2ชม จ ที่แล้ว Prang', CONFIG, TODAY);
+  r = Parser.parseCommand('เคมี สตบ 2ชม จ ที่แล้ว Prang', DEMO_CONFIG, TODAY);
   const expectedMonday = (function () {
     const d = new Date(TODAY + 'T00:00:00');
     let diff = (d.getDay() - 1 + 7) % 7; if (diff === 0) diff = 7;
@@ -1362,51 +1375,51 @@ function runParserTests() {
   check('5: last Monday', r.kind === 'confirm' && r.date === expectedMonday, r);
 
   // 6. check-in mode via มา
-  r = Parser.parseCommand('มา Heng Pim Kee กลุ่ม1 มด', CONFIG, TODAY);
+  r = Parser.parseCommand('มา Heng Pim Kee กลุ่ม1 มด', DEMO_CONFIG, TODAY);
   check('6: check-in mode', r.kind === 'confirm' && r.mode === 2 && r.students.length === 3, r);
 
   // 7. check-in via เช็ค
-  r = Parser.parseCommand('เช็ค กลุ่ม2 สตบ มา Nut', CONFIG, TODAY);
+  r = Parser.parseCommand('เช็ค กลุ่ม2 สตบ มา Nut', DEMO_CONFIG, TODAY);
   check('7: check-in via เช็ค', r.kind === 'confirm' && r.mode === 2 && r.students.indexOf('Nut') !== -1, r);
 
   // 8. cancel intent
-  r = Parser.parseCommand('ยกเลิก กลุ่ม3 สตบ 15/5', CONFIG, TODAY);
+  r = Parser.parseCommand('ยกเลิก กลุ่ม3 สตบ 15/5', DEMO_CONFIG, TODAY);
   check('8: cancel intent', r.kind === 'confirm' && r.mode === 'cancel', r);
 
   // 9. พ.ศ. year conversion
-  r = Parser.parseCommand('กลุ่ม1 26/5/2569 มด 2ชม Heng', CONFIG, TODAY);
+  r = Parser.parseCommand('กลุ่ม1 26/5/2569 มด 2ชม Heng', DEMO_CONFIG, TODAY);
   check('9: พ.ศ. -> ค.ศ.', r.kind === 'confirm' && r.date === '2026-05-26', r);
 
   // 10. invalid group, no fallback
-  r = Parser.parseCommand('กลุ่ม4 จอย 1ชม', CONFIG, TODAY);
+  r = Parser.parseCommand('กลุ่ม4 จอย 1ชม', DEMO_CONFIG, TODAY);
   check('10: invalid group error', r.kind === 'error', r);
 
   // 11. missing group, asks
-  r = Parser.parseCommand('จอย 2ชม Heng', CONFIG, TODAY);
+  r = Parser.parseCommand('จอย 2ชม Heng', DEMO_CONFIG, TODAY);
   check('11: missing group asks', r.kind === 'error' && /กลุ่ม/.test(r.message), r);
 
   // 12. invalid location
-  r = Parser.parseCommand('กลุ่ม1 นครสวรรค์ 2ชม', CONFIG, TODAY);
+  r = Parser.parseCommand('กลุ่ม1 นครสวรรค์ 2ชม', DEMO_CONFIG, TODAY);
   check('12: invalid location error', r.kind === 'error' && /สถานที่/.test(r.message), r);
 
   // 13. half hour
-  r = Parser.parseCommand('กลุ่ม1 จอย ครึ่งชม Heng', CONFIG, TODAY);
+  r = Parser.parseCommand('กลุ่ม1 จอย ครึ่งชม Heng', DEMO_CONFIG, TODAY);
   check('13: half hour = 0.5', r.kind === 'confirm' && r.hours === 0.5, r);
 
   // 14. tomorrow -> plan status
-  r = Parser.parseCommand('กลุ่ม2 มด 2ชม พรุ่งนี้ Nut Toei', CONFIG, TODAY);
+  r = Parser.parseCommand('กลุ่ม2 มด 2ชม พรุ่งนี้ Nut Toei', DEMO_CONFIG, TODAY);
   check('14: tomorrow -> plan status', r.kind === 'confirm' && r.status === 'plan' && r.date === addDays(TODAY, 1), r);
 
   // 15. empty input, no crash
-  r = Parser.parseCommand('', CONFIG, TODAY);
+  r = Parser.parseCommand('', DEMO_CONFIG, TODAY);
   check('15: empty input', r.kind === 'empty', r);
 
   // 16. no hours, not check-in -> asks for hours
-  r = Parser.parseCommand('กลุ่ม1 มด Heng', CONFIG, TODAY);
+  r = Parser.parseCommand('กลุ่ม1 มด Heng', DEMO_CONFIG, TODAY);
   check('16: missing hours asks', r.kind === 'error' && /ชั่วโมง/.test(r.message), r);
 
   // 17. two locations, no group -> error
-  r = Parser.parseCommand('จอย มด 2ชม', CONFIG, TODAY);
+  r = Parser.parseCommand('จอย มด 2ชม', DEMO_CONFIG, TODAY);
   check('17: two locations no group -> error', r.kind === 'error', r);
 
   console.log('==== Parser tests: ' + pass + ' PASS / ' + fail + ' FAIL (of ' + (pass + fail) + ') ====');

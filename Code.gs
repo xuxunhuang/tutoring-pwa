@@ -11,7 +11,7 @@
  */
 
 // ▼▼▼ EDIT THIS ONE LINE — paste your Google Sheet ID (the long string in its URL) ▼▼▼
-const SHEET_ID = 'PUT_YOUR_GOOGLE_SHEET_ID_HERE';
+const SHEET_ID = '1mowV5UwjXCQBBNWTYVLXZ4vVf_jxaKAO-RAczQmHuDM'; // "ติดตามเรียนพิเศษ" in Folder_PWD_ERP
 // ▲▲▲ EDIT THIS ONE LINE ▲▲▲
 
 const TZ = 'Asia/Bangkok';
@@ -72,7 +72,8 @@ const PAY_COL = {
   RECEIVED: 12,     // รับเงินไป (บาท)
   OUTSTANDING: 13,  // ยอดค้าง (บาท)
   NOTE: 14,         // หมายเหตุ
-  FOLLOWUP_MSG: 15  // ข้อความติดตามเงิน
+  FOLLOWUP_MSG: 15, // ข้อความติดตามเงิน
+  SESSION_REF: 16   // SessionRef (appended by this script if missing) - "<sessionClientKey>:<studentName>", idempotency key
 };
 
 // ============================================================================
@@ -387,6 +388,69 @@ function computeRow_(fields) {
 }
 
 // ============================================================================
+// Payment ledger fan-out
+// ============================================================================
+// Session rows (บันทึกการสอน) hold attendance; the per-student payment ledger
+// (รายละเอียดรายนักเรียน) is a separate bill per attending student. Nothing
+// else creates rows there, so every path that can mark a session TAUGHT must
+// call this to fan out one billable row per attendee. Idempotent via
+// "<sessionClientKey>:<studentName>" stored in the hidden SessionRef column.
+
+function ensurePaySessionRefColumn_(sh) {
+  const lastCol = sh.getLastColumn();
+  if (lastCol < PAY_COL.SESSION_REF) {
+    sh.getRange(1, PAY_COL.SESSION_REF).setValue('SessionRef');
+  }
+}
+
+function syncPaymentRows_(sessionRowIndex) {
+  const sh = sheet_(SHEET_NAMES.SESSIONS);
+  const session = rowToSessionObj_(sh, sessionRowIndex);
+  if (session.status !== STATUS.TAUGHT) return;
+
+  const attendedList = parseNames_(session.attended);
+  if (attendedList.length === 0) return;
+  if (!session.clientKey) return; // no stable ref to dedupe on; skip rather than risk duplicate bills
+
+  const paySh = sheet_(SHEET_NAMES.PAYMENTS);
+  ensurePaySessionRefColumn_(paySh);
+
+  const lastRow = paySh.getLastRow();
+  const existingRefs = lastRow >= 2
+    ? paySh.getRange(2, PAY_COL.SESSION_REF, lastRow - 1, 1).getValues().map(function (r) { return r[0]; })
+    : [];
+
+  const amountTeach = session.hours * session.ratePerHour;
+  const amountRoom = session.rentPerStudent;
+  const amountTotal = amountTeach + amountRoom;
+
+  attendedList.forEach(function (studentName) {
+    const ref = session.clientKey + ':' + studentName;
+    if (existingRefs.indexOf(ref) !== -1) return; // already billed for this session
+
+    const row = new Array(PAY_COL.SESSION_REF).fill('');
+    row[PAY_COL.STUDENT - 1] = studentName;
+    row[PAY_COL.GROUP - 1] = session.group;
+    row[PAY_COL.DATE_ATTENDED - 1] = session.dateAttended;
+    row[PAY_COL.LOCATION - 1] = session.location;
+    row[PAY_COL.STATUS - 1] = session.status;
+    row[PAY_COL.ATTENDED - 1] = studentName;
+    row[PAY_COL.HOURS - 1] = session.hours;
+    row[PAY_COL.AMOUNT_TEACH - 1] = amountTeach;
+    row[PAY_COL.AMOUNT_ROOM - 1] = amountRoom;
+    row[PAY_COL.AMOUNT_TOTAL - 1] = amountTotal;
+    row[PAY_COL.PAID - 1] = false;
+    row[PAY_COL.RECEIVED - 1] = 0;
+    row[PAY_COL.OUTSTANDING - 1] = amountTotal;
+    row[PAY_COL.NOTE - 1] = '';
+    row[PAY_COL.FOLLOWUP_MSG - 1] = '';
+    row[PAY_COL.SESSION_REF - 1] = ref;
+    paySh.appendRow(row);
+    existingRefs.push(ref);
+  });
+}
+
+// ============================================================================
 // POST actions
 // ============================================================================
 
@@ -487,6 +551,7 @@ function addSession(payload) {
   rowVals[SES_COL.CLIENT_KEY - 1] = payload.clientKey || '';
 
   sh.getRange(rowIndex, 1, 1, rowVals.length).setValues([rowVals]);
+  syncPaymentRows_(rowIndex);
   return rowToSessionObj_(sh, rowIndex);
 }
 
@@ -534,6 +599,7 @@ function checkIn(payload) {
   sh.getRange(targetRow, SES_COL.REVENUE_AFTER_ROOM).setValue(computed.revenueAfterRoom);
   sh.getRange(targetRow, SES_COL.CLIENT_KEY).setValue(payload.clientKey || existing.clientKey || '');
 
+  syncPaymentRows_(targetRow);
   return rowToSessionObj_(sh, targetRow);
 }
 
@@ -615,6 +681,7 @@ function updateSession(payload) {
   sh.getRange(rowIndex, SES_COL.REVENUE_AFTER_ROOM).setValue(computed.revenueAfterRoom);
   if (payload.message != null) sh.getRange(rowIndex, SES_COL.MESSAGE).setValue(payload.message);
 
+  syncPaymentRows_(rowIndex);
   return rowToSessionObj_(sh, rowIndex);
 }
 
@@ -654,22 +721,27 @@ function recordPayment(payload) {
  * ============================================================================
  * DEPLOY INSTRUCTIONS
  * ============================================================================
- * 1. Open (or upload+convert) your Google Sheet "ติดตามเรียนพิเศษ_v3" in Google
- *    Sheets, with the 5 tabs named exactly: ตั้งค่า, นักเรียน, บันทึกการสอน,
- *    รายละเอียดรายนักเรียน, สรุปรายเดือน.
- * 2. In the Sheet, go to Extensions > Apps Script.
+ * 1. SHEET_ID above is already set to the real working Sheet "ติดตามเรียนพิเศษ"
+ *    (in Folder_PWD_ERP on Drive) — a from-scratch Sheet with the 5 tabs
+ *    ตั้งค่า, นักเรียน, บันทึกการสอน, รายละเอียดรายนักเรียน, สรุปรายเดือน,
+ *    headers only, no demo data. Fill in your real locations/groups in
+ *    ตั้งค่า and your real students in นักเรียน before using the app for real.
+ * 2. Open that Sheet, go to Extensions > Apps Script.
  * 3. Delete any boilerplate code and paste this entire Code.gs file in.
- * 4. At the top of this file, set SHEET_ID to your Sheet's ID (the long string
- *    between /d/ and /edit in the Sheet's URL).
- * 5. In the Apps Script editor, go to Project Settings (gear icon) > Script
+ * 4. In the Apps Script editor, go to Project Settings (gear icon) > Script
  *    Properties > Add script property. Key: TUTOR_APP_TOKEN, Value: a long
- *    random secret string you generate yourself (e.g. from a password
- *    generator). This is the shared secret the PWA must send with every
- *    request.
- * 6. Click Deploy > New deployment. Select type "Web app". Set "Execute as":
+ *    random secret you generate yourself (this is the shared secret the app
+ *    sends with every request — must match CONFIG.TOKEN in index.html).
+ *    NOTE: since index.html is a public static page, this token is visible
+ *    to anyone who views the deployed page's source — it deters casual/
+ *    automated hits on the URL, it is not a real access-control boundary.
+ *    Do not reuse a secret you care about elsewhere.
+ * 5. Click Deploy > New deployment. Select type "Web app". Set "Execute as":
  *    Me. Set "Who has access": Anyone with the link. Click Deploy.
- * 7. Copy the Web app URL shown — this is your GAS_URL for index.html's
- *    CONFIG object. Copy the same TUTOR_APP_TOKEN value into CONFIG.TOKEN.
+ *    (This step asks YOU to authorize the script's access to your own Sheet —
+ *    that consent has to happen in your own browser session, it can't be
+ *    done on your behalf.)
+ * 6. Copy the Web app URL shown — paste it into index.html's CONFIG.GAS_URL.
  * 8. Every time you edit this Code.gs file, you must create a NEW deployment
  *    version (Deploy > Manage deployments > Edit > New version) for changes
  *    to take effect on the existing URL.

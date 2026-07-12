@@ -12,74 +12,97 @@ frameworks, zero LLM/AI calls at runtime.
 - `manifest.webmanifest` — PWA install manifest
 - `sw.js` — service worker (offline app shell + API cache)
 
-## 1. Set up the Google Sheet
+## Status — what's already done for you
 
-1. If your data is currently an `.xlsx` file, upload it to Google Drive, then
-   right-click it → **Open with → Google Sheets** (this converts it in place;
-   or use File → Save as Google Sheets from within Sheets).
-2. Confirm the 5 tabs are named exactly: `ตั้งค่า`, `นักเรียน`, `บันทึกการสอน`,
-   `รายละเอียดรายนักเรียน`, `สรุปรายเดือน` — the backend looks them up by
-   these exact names.
-3. Copy the Sheet's ID from its URL: `https://docs.google.com/spreadsheets/d/`**`THIS_PART`**`/edit`.
+- **The Sheet exists and is wired in.** `ติดตามเรียนพิเศษ` in `Folder_PWD_ERP`
+  on Drive — https://docs.google.com/spreadsheets/d/1mowV5UwjXCQBBNWTYVLXZ4vVf_jxaKAO-RAczQmHuDM/edit
+  — created from scratch (no demo data), with the 5 tabs and exact headers
+  `Code.gs` expects: `ตั้งค่า`, `นักเรียน`, `บันทึกการสอน`, `รายละเอียดรายนักเรียน`,
+  `สรุปรายเดือน`. `SHEET_ID` in `Code.gs` already points at it.
+- **You still need to generate the shared-secret token** (step 2 below) —
+  deliberately left as a placeholder in both `Code.gs` and `index.html`
+  rather than committed for you, since this repo is **public**: any value
+  committed here is visible in git history forever, and index.html being a
+  public static page means the token is visible in view-source once deployed
+  regardless. Treat it as a deterrent against casual/automated hits on the
+  URL, not a real access-control boundary — don't reuse a secret you care
+  about elsewhere.
+- **The repo is live**: https://github.com/xuxunhuang/tutoring-pwa , and
+  GitHub Pages is already enabled, serving at
+  https://xuxunhuang.github.io/tutoring-pwa/ .
+- **You still need to fill in your real locations/groups/rates** in the
+  `ตั้งค่า` tab and your real students in `นักเรียน` — the Sheet is
+  intentionally blank, it was never seeded with the earlier example workbook's
+  placeholder data.
+
+## 1. Fill in your real data
+
+Open the Sheet (link above) and fill in:
+- `ตั้งค่า` tab: your real locations (name + rent/session) in columns A-C
+  starting row 3, and your real groups (name + subject + rate/hr + teacher's
+  room-fee share) in columns E-I starting row 3.
+- `นักเรียน` tab: your real students (name, group, contact info).
 
 ## 2. Deploy the Apps Script backend
 
+This part can't be automated — it requires you to authorize the script's
+access to your own Sheet in your own browser session.
+
 1. In the Sheet, go to **Extensions → Apps Script**.
-2. Delete the boilerplate `Code.gs` content and paste in this repo's `Code.gs`.
-3. At the top of the file, set `SHEET_ID` to the ID you copied above.
-4. Go to **Project Settings** (gear icon) → **Script Properties** → **Add script property**.
-   Key: `TUTOR_APP_TOKEN`. Value: a long random secret you generate yourself
-   (this is the shared secret the app sends with every request — treat it
-   like a password).
-5. Click **Deploy → New deployment**. Type: **Web app**. Execute as: **Me**.
+2. Delete the boilerplate `Code.gs` content and paste in this repo's `Code.gs`
+   (SHEET_ID is already set correctly — don't need to touch it).
+3. Go to **Project Settings** (gear icon) → **Script Properties** → **Add script property**.
+   Key: `TUTOR_APP_TOKEN`. Value: a long random string you generate yourself
+   (e.g. `openssl rand -base64 32`, or any password generator) — this must
+   match `CONFIG.TOKEN` in `index.html` (step 3 below), but pick your own
+   value rather than reusing one from a chat log or example.
+4. Click **Deploy → New deployment**. Type: **Web app**. Execute as: **Me**.
    Who has access: **Anyone with the link**. Click **Deploy**, authorize the
    script when prompted.
-6. Copy the **Web app URL** — you'll need it in step 3 below.
-7. Whenever you edit `Code.gs` again, you must **Deploy → Manage deployments
+5. Copy the **Web app URL** — paste it into `CONFIG.GAS_URL` in `index.html`,
+   and paste the same token from step 3 into `CONFIG.TOKEN` (both are
+   placeholders right now). Commit and push — GitHub Pages picks it up
+   automatically. This is the one point where your real token becomes part
+   of the public repo/page — that's expected and fine, just don't reuse that
+   value anywhere sensitive.
+6. Whenever you edit `Code.gs` again, you must **Deploy → Manage deployments
    → Edit → New version** for the changes to go live on the same URL.
 
-## 3. Configure the frontend
+## 3. The frontend `CONFIG` block
 
-Open `index.html` and edit the `CONFIG` object near the top of the `<script>`:
+`index.html`'s `CONFIG` object near the top of the `<script>` — everything
+except `GAS_URL` (step 2.5 above) is already filled in:
 
 ```js
 const CONFIG = {
-  GAS_URL: 'https://script.google.com/macros/s/.../exec', // from step 2.6
-  TOKEN: '...',            // same value as TUTOR_APP_TOKEN from step 2.4
-  TEACHER_NAME: '...',
-  BANK_NAME: '...',
-  ACCOUNT_NUMBER: '...',
-  locations: [ ... ],       // seed data — gets refreshed from the Sheet on load
-  groups: [ ... ],
-  students: [ ... ]
+  GAS_URL: 'https://script.google.com/macros/s/.../exec', // ← fill in from step 2.5
+  TOKEN: '...',                    // ← same value as Script Property TUTOR_APP_TOKEN
+  TEACHER_NAME: '[ชื่อครู]',      // edit to your real name
+  BANK_NAME: '[ชื่อธนาคาร]',      // edit to your real bank
+  ACCOUNT_NUMBER: '[เลขบัญชี]',   // edit to your real account number
+  locations: [],  // intentionally empty — populated live from the Sheet on load
+  groups: [],
+  students: []
 };
 ```
 
-The `locations`/`groups`/`students` arrays are just an offline-friendly seed —
-on every load, the app fetches live data from `action=config`/`action=students`
-and merges it in (and caches the result to localStorage for offline use). The
-one thing that does **not** come from the Sheet automatically is each
-location's/group's `aliases: []` array (see below).
+`locations`/`groups`/`students` start empty on purpose (this is a from-scratch
+deployment, not seeded with demo data) — on every load, the app fetches live
+data from `action=config`/`action=students` and caches it to localStorage for
+offline use. The one thing that does **not** come from the Sheet automatically
+is each location's/group's `aliases: []` array (see "Adding / changing data"
+below) — add those once you know your real location/group names.
 
-## 4. Host `index.html`
+## 4. Hosting — already done
 
-**Option A — GitHub Pages:**
+The app is already pushed to GitHub and served via GitHub Pages at
+https://xuxunhuang.github.io/tutoring-pwa/ — no hosting setup needed. After
+editing `CONFIG.GAS_URL` (step 2.5), just commit and push; Pages redeploys
+automatically within a minute or two.
 
-1. Create a new GitHub repo, push this folder's contents (`index.html`,
-   `manifest.webmanifest`, `sw.js` — `Code.gs` doesn't need to be hosted).
-2. Repo **Settings → Pages** → Source: deploy from branch → pick `main` /
-   root. Save.
-3. Your app will be live at `https://<username>.github.io/<repo>/`.
-
-**Option B — any static host** (Netlify, Vercel, Firebase Hosting, a plain
-web server, etc.) — just serve the 3 static files from the same folder.
-
-**Option C — local file** — you can open `index.html` directly in a mobile
-browser for testing, though the service worker (offline support) only
-activates when served over `http(s)://`, not `file://`.
-
-For "Add to Home Screen" (PWA install) to work, the site must be served over
-HTTPS (GitHub Pages, Netlify, etc. all do this for free).
+For "Add to Home Screen" (PWA install) on your phone, just open that URL —
+GitHub Pages serves over HTTPS already, which is required for install +
+offline support to work.
 
 ## Adding / changing data
 
