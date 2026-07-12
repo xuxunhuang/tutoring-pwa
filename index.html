@@ -1,0 +1,1438 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+<meta name="theme-color" content="#000000">
+<title>ติดตามเรียนพิเศษ · Tutor Dispatch</title>
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%E2%9A%A1%3C/text%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Caveat:wght@500;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#000000;
+  --surface:rgba(255,255,255,0.06);
+  --surface-2:rgba(255,255,255,0.10);
+  --surface-border:rgba(255,255,255,0.12);
+  --light-accent:#CBD5E1;
+  --primary:#34D399;
+  --primary-dim:rgba(52,211,153,0.16);
+  --accent:#2563EB;
+  --accent-dim:rgba(37,99,235,0.18);
+  --danger:#F87171;
+  --danger-dim:rgba(248,113,113,0.15);
+  --text:#FFFFFF;
+  --text-muted:#A1A1AA;
+  --r-card:16px;
+  --r-control:8px;
+  --r-pill:9999px;
+  --sp:8px;
+  --pad-card:24px;
+  --font-display:'Caveat',cursive;
+  --font-body:'Inter',system-ui,sans-serif;
+  --font-mono:'JetBrains Mono',monospace;
+  --safe-top:env(safe-area-inset-top,0px);
+  --safe-bottom:env(safe-area-inset-bottom,0px);
+}
+*{box-sizing:border-box;}
+html,body{margin:0;padding:0;height:100%;background:var(--bg);}
+body{
+  color:var(--text);
+  font-family:var(--font-body);
+  overflow-x:hidden;
+  -webkit-font-smoothing:antialiased;
+  padding-top:var(--safe-top);
+}
+h1,h2,h3,.display{font-family:var(--font-display);font-weight:700;letter-spacing:.3px;}
+.mono{font-family:var(--font-mono);}
+a{color:var(--primary);}
+button{font-family:inherit;}
+::selection{background:var(--primary-dim);}
+
+#app{
+  max-width:560px;
+  margin:0 auto;
+  min-height:100vh;
+  display:flex;
+  flex-direction:column;
+  position:relative;
+}
+
+/* ---------- Top bar ---------- */
+.topbar{
+  padding:calc(var(--sp)*2) calc(var(--sp)*3) var(--sp);
+  display:flex;
+  align-items:baseline;
+  justify-content:space-between;
+}
+.topbar h1{font-size:28px;margin:0;color:var(--primary);}
+.topbar .sub{font-size:12px;color:var(--text-muted);font-family:var(--font-mono);}
+.status-dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:6px;}
+.status-dot.online{background:var(--primary);box-shadow:0 0 6px var(--primary);}
+.status-dot.offline{background:var(--danger);box-shadow:0 0 6px var(--danger);}
+
+/* ---------- Screens ---------- */
+.screen{
+  flex:1;
+  padding:0 calc(var(--sp)*2) calc(90px + var(--safe-bottom));
+  display:none;
+  animation:fadeIn .25s ease-out;
+}
+.screen.active{display:block;}
+@keyframes fadeIn{from{opacity:0;transform:translateY(6px);}to{opacity:1;transform:translateY(0);}}
+
+/* ---------- Cards ---------- */
+.card{
+  background:var(--surface);
+  border:1px solid var(--surface-border);
+  border-radius:var(--r-card);
+  padding:var(--pad-card);
+  margin-bottom:calc(var(--sp)*2);
+  transition:transform .15s ease-out, box-shadow .15s ease-out;
+}
+.card.tap:active{transform:translateY(-2px);box-shadow:0 8px 24px rgba(0,0,0,0.4);}
+.card h3{margin:0 0 calc(var(--sp)*1.5);font-size:20px;color:var(--text);}
+.list-enter{opacity:0;transform:translateY(10px);animation:listIn .35s ease-out forwards;}
+@keyframes listIn{to{opacity:1;transform:translateY(0);}}
+
+/* ---------- Dispatch (console feel) ---------- */
+.dispatch-wrap{
+  display:flex;
+  flex-direction:column;
+  min-height:calc(100vh - 90px - var(--safe-bottom) - 70px);
+}
+.console-log{flex:1;overflow-y:auto;padding-top:4px;}
+.console-hint{
+  font-family:var(--font-mono);
+  font-size:12px;
+  color:var(--text-muted);
+  border-left:2px solid var(--primary-dim);
+  padding:8px 12px;
+  margin-bottom:12px;
+  background:rgba(52,211,153,0.04);
+  border-radius:0 8px 8px 0;
+  line-height:1.7;
+}
+.console-hint b{color:var(--primary);font-weight:600;}
+
+.preview-area{margin-bottom:12px;}
+.confirm-card{
+  border:1px solid var(--primary);
+  background:linear-gradient(180deg, rgba(52,211,153,0.10), rgba(52,211,153,0.03));
+}
+.confirm-card .row{
+  display:flex;justify-content:space-between;align-items:center;
+  padding:6px 0;border-bottom:1px dashed var(--surface-border);font-size:14px;
+}
+.confirm-card .row:last-of-type{border-bottom:none;}
+.confirm-card .row .k{color:var(--text-muted);}
+.confirm-card .row .v{font-family:var(--font-mono);font-weight:600;}
+.badge{
+  display:inline-block;padding:2px 12px;border-radius:var(--r-pill);
+  font-size:12px;font-family:var(--font-mono);font-weight:600;
+}
+.badge.plan{background:var(--accent-dim);color:#93C5FD;}
+.badge.taught{background:var(--primary-dim);color:var(--primary);}
+.badge.cancel{background:var(--danger-dim);color:var(--danger);}
+.badge.pending{background:rgba(161,161,170,0.15);color:var(--text-muted);}
+
+.error-card{border:1px solid var(--danger);background:rgba(248,113,113,0.06);}
+.error-card .msg{font-size:14px;color:#FECACA;}
+
+.chip-row{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;}
+.chip{
+  padding:8px 16px;border-radius:var(--r-pill);background:var(--surface-2);
+  border:1px solid var(--surface-border);font-size:14px;cursor:pointer;
+  min-height:44px;display:flex;align-items:center;transition:transform .12s;
+}
+.chip:active{transform:translateY(-2px);}
+.chip.selected{background:var(--primary-dim);border-color:var(--primary);color:var(--primary);}
+
+.picker-list{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0;}
+.picker-item{
+  min-height:44px;padding:8px 16px;border-radius:var(--r-pill);
+  background:var(--surface-2);border:1px solid var(--surface-border);
+  font-size:14px;cursor:pointer;display:flex;align-items:center;gap:6px;
+}
+.picker-item.checked{background:var(--primary-dim);border-color:var(--primary);color:var(--primary);}
+
+.btn{
+  min-height:48px;border:none;border-radius:var(--r-control);
+  font-family:var(--font-body);font-weight:600;font-size:15px;cursor:pointer;
+  padding:0 20px;transition:transform .12s, box-shadow .12s;
+}
+.btn:active{transform:translateY(-2px);}
+.btn-primary{background:var(--primary);color:#003326;}
+.btn-primary:active{box-shadow:0 6px 18px rgba(52,211,153,0.35);}
+.btn-ghost{background:var(--surface-2);color:var(--text);}
+.btn-danger{background:var(--danger);color:#3B0A0A;}
+.btn-block{width:100%;}
+.btn-row{display:flex;gap:10px;margin-top:14px;}
+
+.dispatch-input-bar{
+  position:sticky;bottom:0;
+  background:linear-gradient(180deg, transparent, rgba(0,0,0,0.9) 30%);
+  padding-top:16px;
+}
+.input-shell{
+  display:flex;align-items:center;gap:8px;
+  background:var(--surface-2);border:1px solid var(--surface-border);
+  border-radius:var(--r-control);padding:4px 4px 4px 14px;
+}
+.input-shell .prompt{color:var(--primary);font-family:var(--font-mono);font-weight:700;}
+#cmdInput{
+  flex:1;background:transparent;border:none;outline:none;color:var(--text);
+  font-family:var(--font-mono);font-size:16px;min-height:44px;
+}
+#cmdInput::placeholder{color:var(--text-muted);}
+.send-btn{
+  min-width:44px;min-height:44px;border-radius:var(--r-control);
+  background:var(--primary);border:none;color:#003326;font-weight:700;cursor:pointer;
+}
+
+/* ---------- Bottom nav ---------- */
+.bottomnav{
+  position:fixed;bottom:0;left:0;right:0;
+  display:flex;
+  background:rgba(10,10,10,0.92);
+  backdrop-filter:blur(12px);
+  border-top:1px solid var(--surface-border);
+  padding-bottom:var(--safe-bottom);
+  z-index:50;
+}
+.bottomnav-inner{max-width:560px;margin:0 auto;display:flex;width:100%;}
+.navbtn{
+  flex:1;min-height:56px;background:none;border:none;color:var(--text-muted);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:2px;cursor:pointer;font-size:11px;font-family:var(--font-body);
+}
+.navbtn .ic{font-size:20px;}
+.navbtn.active{color:var(--primary);}
+
+/* ---------- History ---------- */
+.session-row{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;}
+.session-row .meta{font-size:13px;color:var(--text-muted);margin-top:4px;font-family:var(--font-mono);}
+.session-row .actions{display:flex;gap:6px;}
+.iconbtn{
+  min-width:36px;min-height:36px;border-radius:var(--r-control);
+  border:1px solid var(--surface-border);background:var(--surface-2);
+  color:var(--text);cursor:pointer;font-size:15px;
+}
+.pending-badge{color:#FBBF24;font-family:var(--font-mono);font-size:11px;}
+
+/* ---------- Summary ---------- */
+.month-picker{display:flex;align-items:center;gap:10px;margin-bottom:16px;}
+.month-picker input{
+  background:var(--surface-2);border:1px solid var(--surface-border);color:var(--text);
+  border-radius:var(--r-control);padding:10px;font-family:var(--font-mono);min-height:44px;flex:1;
+}
+.stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+.stat-tile{background:var(--surface);border:1px solid var(--surface-border);border-radius:var(--r-card);padding:16px;}
+.stat-tile .label{font-size:12px;color:var(--text-muted);}
+.stat-tile .value{font-family:var(--font-mono);font-size:22px;font-weight:700;color:var(--primary);margin-top:4px;}
+
+table.breakdown{width:100%;border-collapse:collapse;font-size:13px;margin-top:8px;}
+table.breakdown th, table.breakdown td{padding:8px 6px;text-align:left;border-bottom:1px solid var(--surface-border);}
+table.breakdown th{color:var(--text-muted);font-weight:600;font-size:12px;}
+table.breakdown td.num, table.breakdown th.num{font-family:var(--font-mono);text-align:right;}
+
+/* ---------- Payments ---------- */
+.pay-row{display:flex;justify-content:space-between;align-items:center;}
+.pay-row .name{font-weight:600;}
+.pay-row .outstanding{font-family:var(--font-mono);color:var(--danger);font-weight:700;}
+.pay-row .outstanding.zero{color:var(--primary);}
+.copy-btn{margin-top:12px;}
+
+.toast{
+  position:fixed;left:50%;bottom:calc(80px + var(--safe-bottom));transform:translateX(-50%);
+  background:var(--surface-2);border:1px solid var(--surface-border);
+  padding:10px 18px;border-radius:var(--r-pill);font-size:13px;z-index:100;
+  animation:toastIn .2s ease-out;
+}
+@keyframes toastIn{from{opacity:0;transform:translate(-50%,10px);}to{opacity:1;transform:translate(-50%,0);}}
+
+.empty-state{text-align:center;color:var(--text-muted);padding:40px 12px;font-size:14px;}
+.empty-state .big{font-family:var(--font-display);font-size:32px;color:var(--text-muted);display:block;margin-bottom:8px;}
+
+textarea.msgbox{
+  width:100%;background:var(--surface-2);border:1px solid var(--surface-border);
+  color:var(--text);border-radius:var(--r-control);padding:10px;font-family:var(--font-mono);
+  font-size:13px;min-height:160px;white-space:pre-wrap;
+}
+label.field-label{font-size:12px;color:var(--text-muted);display:block;margin:10px 0 4px;}
+input.field-input{
+  width:100%;background:var(--surface-2);border:1px solid var(--surface-border);color:var(--text);
+  border-radius:var(--r-control);padding:10px;font-family:var(--font-mono);min-height:44px;
+}
+</style>
+</head>
+<body>
+
+<div id="app">
+  <div class="topbar">
+    <h1 class="display">ติดตามเรียนพิเศษ</h1>
+    <div class="sub"><span id="netDot" class="status-dot online"></span><span id="netLabel">online</span></div>
+  </div>
+
+  <!-- SCREEN 1: DISPATCH -->
+  <section class="screen active" id="screen-dispatch">
+    <div class="dispatch-wrap">
+      <div class="console-log" id="dispatchPreview">
+        <div class="console-hint">
+          พิมพ์คำสั่งสั้น ๆ เช่น <b>กลุ่ม1 จอย 2ชม Heng,Pim</b><br>
+          เช็คอิน: <b>มา Heng Pim กลุ่ม1 มด</b> &nbsp; ยกเลิก: <b>ยกเลิก กลุ่ม3 สตบ 15/5</b>
+        </div>
+      </div>
+      <div class="dispatch-input-bar">
+        <div class="input-shell">
+          <span class="prompt">&gt;</span>
+          <input id="cmdInput" class="mono" type="text" placeholder="พิมพ์คำสั่ง..." autocomplete="off" autocapitalize="off" spellcheck="false">
+          <button class="send-btn" id="cmdGo">▸</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SCREEN 2: HISTORY -->
+  <section class="screen" id="screen-history">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin:12px 0;">
+      <h2 class="display" style="margin:0;font-size:24px;">ประวัติ</h2>
+      <button class="btn btn-ghost" id="undoBtn">↺ Undo last</button>
+    </div>
+    <div id="historyList"></div>
+  </section>
+
+  <!-- SCREEN 3: SUMMARY -->
+  <section class="screen" id="screen-summary">
+    <h2 class="display" style="font-size:24px;margin:12px 0;">สรุปรายเดือน</h2>
+    <div class="month-picker">
+      <input type="month" id="monthPicker">
+    </div>
+    <div id="summaryContent"></div>
+  </section>
+
+  <!-- SCREEN 4: PAYMENTS -->
+  <section class="screen" id="screen-payments">
+    <h2 class="display" style="font-size:24px;margin:12px 0;">การเงิน</h2>
+    <div id="paymentsList"></div>
+  </section>
+
+  <nav class="bottomnav">
+    <div class="bottomnav-inner">
+      <button class="navbtn active" data-screen="dispatch"><span class="ic">⌁</span>Dispatch</button>
+      <button class="navbtn" data-screen="history"><span class="ic">🕘</span>History</button>
+      <button class="navbtn" data-screen="summary"><span class="ic">📊</span>Summary</button>
+      <button class="navbtn" data-screen="payments"><span class="ic">💰</span>Payments</button>
+    </div>
+  </nav>
+</div>
+
+<script>
+'use strict';
+
+/* ============================================================================
+ * CONFIG — edit these for your own deployment. GAS_URL/TOKEN come from your
+ * Apps Script deployment (see Code.gs bottom-of-file deploy instructions).
+ * locations/groups are seeded with demo data and get overwritten by the live
+ * ตั้งค่า/นักเรียน sheet data on load (and cached to localStorage for offline).
+ * aliases[] is the one thing you must hand-maintain here when you add a new
+ * location or group in the sheet (see README "How to add a new location/group").
+ * ========================================================================== */
+const CONFIG = {
+  GAS_URL: 'https://script.google.com/macros/s/PUT_YOUR_DEPLOYMENT_ID_HERE/exec',
+  TOKEN: 'PUT_YOUR_TUTOR_APP_TOKEN_HERE',
+  TEACHER_NAME: '[ชื่อครู]',
+  BANK_NAME: '[ชื่อธนาคาร]',
+  ACCOUNT_NUMBER: '[เลขบัญชี]',
+  locations: [
+    { name: 'Genius K.Joy', rent: 500, aliases: ['จอย', 'genius', 'geniuskjoy'] },
+    { name: 'บ้านครูมด', rent: 700, aliases: ['มด', 'ครูมด', 'บ้านครูมด'] },
+    { name: 'Starbuck', rent: 1000, aliases: ['สตบ', 'สตาร์บัค', 'starbuck', 'starbucks'] }
+  ],
+  groups: [
+    { name: 'กลุ่ม 1', subject: 'คณิตศาสตร์', rate: 200, teacherRoomFee: 100, aliases: ['กลุ่ม1', 'g1', 'คณิต', 'คณิตศาสตร์'] },
+    { name: 'กลุ่ม 2', subject: 'ฟิสิกส์', rate: 250, teacherRoomFee: 150, aliases: ['กลุ่ม2', 'g2', 'ฟิสิกส์'] },
+    { name: 'กลุ่ม 3', subject: 'เคมี', rate: 300, teacherRoomFee: 0, aliases: ['กลุ่ม3', 'g3', 'เคมี'] }
+  ],
+  students: [
+    { code: 'Heng', name: 'Heng', group: 'กลุ่ม 1' },
+    { code: 'Pim', name: 'Pim', group: 'กลุ่ม 1' },
+    { code: 'Kee', name: 'Kee', group: 'กลุ่ม 1' },
+    { code: 'Aom', name: 'Aom', group: 'กลุ่ม 1' },
+    { code: 'Rukby', name: 'Rukby', group: 'กลุ่ม 1' },
+    { code: 'Nut', name: 'Nut', group: 'กลุ่ม 2' },
+    { code: 'Toei', name: 'Toei', group: 'กลุ่ม 2' },
+    { code: 'Prang', name: 'Prang', group: 'กลุ่ม 3' },
+    { code: 'Oh', name: 'Oh', group: 'กลุ่ม 3' }
+  ]
+};
+
+/* ============================================================================
+ * Small utilities
+ * ============================================================================ */
+function uuid() {
+  if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+    const r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
+}
+function pad2(n) { return String(n).padStart(2, '0'); }
+function toISODate(d) { return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()); }
+function bkkNow() {
+  // Construct a Date representing "now" in Asia/Bangkok, safe for day-math.
+  const now = new Date();
+  const bkk = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Bangkok' }));
+  return bkk;
+}
+function addDays(iso, n) {
+  const d = new Date(iso + 'T00:00:00');
+  d.setDate(d.getDate() + n);
+  return toISODate(d);
+}
+function fmtMoney(n) { return Math.round(n).toLocaleString('en-US'); }
+function fmtHours(n) { return (Math.round(n * 100) / 100).toString(); }
+
+const THAI_WEEKDAY_ABBR = ['อา.', 'จ.', 'อ.', 'พ.', 'พฤ.', 'ศ.', 'ส.'];
+const THAI_MONTH_ABBR = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
+const THAI_MONTH_FULL_ABBR = THAI_MONTH_ABBR;
+
+function thaiDateLabel(iso) {
+  const d = new Date(iso + 'T00:00:00');
+  return THAI_WEEKDAY_ABBR[d.getDay()] + ' ' + d.getDate() + ' ' + THAI_MONTH_ABBR[d.getMonth()];
+}
+
+/* ============================================================================
+ * PARSER — deterministic, pure functions. tokenize -> classify -> resolve.
+ * No AI/LLM calls. See runParserTests() at bottom for the required test suite.
+ * ============================================================================ */
+const Parser = (function () {
+
+  function normAlias(s) {
+    return String(s).toLowerCase().replace(/[\s.]/g, '');
+  }
+
+  const DATE_KEYWORDS = ['วันนี้', 'เมื่อวาน', 'วันก่อน', 'พรุ่งนี้'];
+  const WEEKDAY_TOKENS = { 'อา': 0, 'จ': 1, 'อ': 2, 'พ': 3, 'พฤ': 4, 'ศ': 5, 'ส': 6 };
+  const CANCEL_VERB = 'ยกเลิก';
+  const CHECKIN_VERBS = ['มา', 'เช็ค', 'เช็คอิน'];
+
+  function buildAliasMaps(config) {
+    const groupMap = {};
+    config.groups.forEach(function (g) {
+      groupMap[normAlias(g.name)] = g;
+      (g.aliases || []).forEach(function (a) { groupMap[normAlias(a)] = g; });
+    });
+    const locMap = {};
+    config.locations.forEach(function (l) {
+      locMap[normAlias(l.name)] = l;
+      (l.aliases || []).forEach(function (a) { locMap[normAlias(a)] = l; });
+    });
+    return { groupMap: groupMap, locMap: locMap };
+  }
+
+  function tokenize(input) {
+    return input.trim().split(/[\s,]+/).filter(Boolean);
+  }
+
+  function lastWeekdayISO(todayISO, targetDow) {
+    const d = new Date(todayISO + 'T00:00:00');
+    const todayDow = d.getDay();
+    let diff = (todayDow - targetDow + 7) % 7;
+    if (diff === 0) diff = 7;
+    return addDays(todayISO, -diff);
+  }
+
+  function parseNumericDate(token, todayISO) {
+    const m = token.match(/^(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?$/);
+    if (!m) return null;
+    const day = parseInt(m[1], 10);
+    const month = parseInt(m[2], 10);
+    let year;
+    if (m[3]) {
+      year = parseInt(m[3], 10);
+      if (year > 2400) year -= 543; // พ.ศ. -> ค.ศ.
+    } else {
+      year = parseInt(todayISO.slice(0, 4), 10);
+    }
+    if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+    return year + '-' + pad2(month) + '-' + pad2(day);
+  }
+
+  function resolveDateKeyword(word, todayISO) {
+    switch (word) {
+      case 'วันนี้': return todayISO;
+      case 'เมื่อวาน': return addDays(todayISO, -1);
+      case 'วันก่อน': return addDays(todayISO, -2);
+      case 'พรุ่งนี้': return addDays(todayISO, 1);
+      default: return null;
+    }
+  }
+
+  /**
+   * Match leftover student-name tokens against a group's roster.
+   * Returns { matched: [names], unmatched: [tokens] }.
+   */
+  function matchStudents(tokens, roster) {
+    const matched = [];
+    const unmatched = [];
+    for (let i = 0; i < tokens.length; i++) {
+      const t = tokens[i];
+      const norm = t.toLowerCase();
+      if (norm === 'ทุกคน' || norm === 'all') {
+        return { matched: roster.map(function (s) { return s.name; }), unmatched: [] };
+      }
+      const exact = roster.filter(function (s) { return s.name.toLowerCase() === norm; });
+      if (exact.length === 1) { matched.push(exact[0].name); continue; }
+      const starts = roster.filter(function (s) { return s.name.toLowerCase().indexOf(norm) === 0; });
+      if (starts.length === 1) { matched.push(starts[0].name); continue; }
+      const contains = roster.filter(function (s) { return s.name.toLowerCase().indexOf(norm) !== -1; });
+      if (contains.length === 1) { matched.push(contains[0].name); continue; }
+      unmatched.push(t);
+    }
+    return { matched: matched, unmatched: unmatched };
+  }
+
+  /**
+   * Main entry point. config = {locations, groups, students}. todayISO optional override (tests).
+   * Returns a discriminated result object, one of:
+   *  { kind:'empty' }
+   *  { kind:'error', message }
+   *  { kind:'pick-students', mode:1, group, location, hours, date, roster }
+   *  { kind:'confirm', mode:1|2|'cancel', ...fields }
+   */
+  function parseCommand(input, config, todayISO) {
+    if (!input || !input.trim()) return { kind: 'empty' };
+    todayISO = todayISO || toISODate(bkkNow());
+
+    let tokens = tokenize(input);
+    const maps = buildAliasMaps(config);
+
+    // ---- verb extraction ----
+    let cancelMode = false;
+    let checkinMode = false;
+    if (tokens.length && tokens[0] === CANCEL_VERB) {
+      cancelMode = true;
+      tokens = tokens.slice(1);
+    }
+    const filtered = [];
+    tokens.forEach(function (t) {
+      if (CHECKIN_VERBS.indexOf(t) !== -1) { checkinMode = true; return; }
+      filtered.push(t);
+    });
+    tokens = filtered;
+
+    // working items with consumed flags
+    const items = tokens.map(function (t) { return { text: t, consumed: false }; });
+
+    let hoursFound = null;
+    let dateFound = null;
+    const groupsFound = [];
+    const locationsFound = [];
+    let invalidGroupToken = null;
+
+    // Pass A: hours (two-token number + ชม/ชั่วโมง, or single combined token, or ครึ่งชม)
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].consumed) continue;
+      if (items[i].text === 'ครึ่งชม' || items[i].text === 'ครึ่งชม.') {
+        hoursFound = 0.5; items[i].consumed = true; continue;
+      }
+      const single = items[i].text.match(/^(\d+(?:\.\d+)?)(ชม\.?|ชั่วโมง)$/);
+      if (single) {
+        hoursFound = parseFloat(single[1]); items[i].consumed = true; continue;
+      }
+      if (/^\d+(?:\.\d+)?$/.test(items[i].text) && i + 1 < items.length && !items[i + 1].consumed &&
+          /^(ชม\.?|ชั่วโมง)$/.test(items[i + 1].text)) {
+        hoursFound = parseFloat(items[i].text);
+        items[i].consumed = true; items[i + 1].consumed = true;
+        i++; continue;
+      }
+    }
+
+    // Pass B: weekday + ที่แล้ว
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].consumed) continue;
+      const wd = WEEKDAY_TOKENS[items[i].text];
+      if (wd !== undefined && i + 1 < items.length && !items[i + 1].consumed && items[i + 1].text === 'ที่แล้ว') {
+        dateFound = lastWeekdayISO(todayISO, wd);
+        items[i].consumed = true; items[i + 1].consumed = true;
+        i++; continue;
+      }
+    }
+
+    // Pass C: date keywords / numeric date
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].consumed) continue;
+      if (dateFound) break;
+      if (DATE_KEYWORDS.indexOf(items[i].text) !== -1) {
+        dateFound = resolveDateKeyword(items[i].text, todayISO);
+        items[i].consumed = true; continue;
+      }
+      const numeric = parseNumericDate(items[i].text, todayISO);
+      if (numeric) {
+        dateFound = numeric; items[i].consumed = true; continue;
+      }
+    }
+
+    // Pass D: group / location alias, invalid-group shape detection
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].consumed) continue;
+      const norm = normAlias(items[i].text);
+      if (maps.groupMap[norm]) {
+        groupsFound.push(maps.groupMap[norm]); items[i].consumed = true; continue;
+      }
+      if (maps.locMap[norm]) {
+        locationsFound.push(maps.locMap[norm]); items[i].consumed = true; continue;
+      }
+      if (/^(กลุ่ม\d+([.]?\d*)?|g\d+)$/i.test(items[i].text)) {
+        invalidGroupToken = items[i].text; items[i].consumed = true; continue;
+      }
+    }
+
+    const leftover = items.filter(function (it) { return !it.consumed; }).map(function (it) { return it.text; });
+
+    // ---- resolution ----
+    if (invalidGroupToken) {
+      return { kind: 'error', message: 'ไม่พบกลุ่ม "' + invalidGroupToken + '" กรุณาเลือกจาก: ' + config.groups.map(function (g) { return g.name; }).join(', ') };
+    }
+    const uniqueGroups = uniqBy(groupsFound, function (g) { return g.name; });
+    if (uniqueGroups.length > 1) {
+      return { kind: 'error', message: 'พบกลุ่มมากกว่า 1 ชื่อในคำสั่ง (' + uniqueGroups.map(function (g) { return g.name; }).join(', ') + ') กรุณาระบุกลุ่มเดียว' };
+    }
+    const uniqueLocs = uniqBy(locationsFound, function (l) { return l.name; });
+    if (uniqueLocs.length > 1) {
+      let msg = 'พบสถานที่มากกว่า 1 แห่ง (' + uniqueLocs.map(function (l) { return l.name; }).join(', ') + ')';
+      if (uniqueGroups.length === 0) msg += ' และไม่พบกลุ่ม กรุณาระบุกลุ่มด้วย';
+      return { kind: 'error', message: msg };
+    }
+
+    const group = uniqueGroups[0] || null;
+    const location = uniqueLocs[0] || null;
+
+    if (!group) {
+      return { kind: 'error', message: 'กรุณาระบุกลุ่ม (ไม่พบกลุ่มในคำสั่ง) เช่น กลุ่ม1 หรือชื่อวิชา' };
+    }
+
+    const roster = config.students.filter(function (s) { return s.group === group.name; });
+
+    if (!location) {
+      const studentAttempt = matchStudents(leftover, roster);
+      if (studentAttempt.unmatched.length > 0) {
+        return { kind: 'error', message: 'ไม่พบสถานที่ "' + studentAttempt.unmatched[0] + '" กรุณาเลือกจาก: ' + config.locations.map(function (l) { return l.name; }).join(', ') };
+      }
+      return { kind: 'error', message: 'กรุณาระบุสถานที่ เช่น ' + config.locations.map(function (l) { return l.name; }).join(', ') };
+    }
+
+    if (cancelMode) {
+      return {
+        kind: 'confirm', mode: 'cancel',
+        group: group.name, subject: group.subject, location: location.name,
+        date: dateFound || todayISO
+      };
+    }
+
+    if (checkinMode) {
+      const studentMatch = matchStudents(leftover, roster);
+      return {
+        kind: 'confirm', mode: 2,
+        group: group.name, subject: group.subject, location: location.name,
+        date: dateFound || null, // null = resolve nearest pending row at submit time
+        students: studentMatch.matched,
+        unmatched: studentMatch.unmatched
+      };
+    }
+
+    // mode 1: create new
+    if (hoursFound === null) {
+      return { kind: 'error', message: 'กรุณาระบุจำนวนชั่วโมง เช่น 2ชม หรือ ครึ่งชม' };
+    }
+
+    const date = dateFound || todayISO;
+    const status = date > todayISO ? 'plan' : 'taught';
+
+    if (leftover.length === 0) {
+      return {
+        kind: 'pick-students', mode: 1,
+        group: group.name, subject: group.subject, location: location.name,
+        hours: hoursFound, date: date, status: status, roster: roster
+      };
+    }
+
+    const studentMatch = matchStudents(leftover, roster);
+    if (studentMatch.unmatched.length > 0) {
+      return { kind: 'error', message: 'ไม่พบชื่อนักเรียน "' + studentMatch.unmatched.join(', ') + '" ในกลุ่ม ' + group.name + ' กรุณาตรวจสอบรายชื่อ' };
+    }
+
+    return {
+      kind: 'confirm', mode: 1,
+      group: group.name, subject: group.subject, location: location.name,
+      hours: hoursFound, date: date, status: status,
+      students: studentMatch.matched
+    };
+  }
+
+  function uniqBy(arr, keyFn) {
+    const seen = {};
+    const out = [];
+    arr.forEach(function (item) {
+      const k = keyFn(item);
+      if (!seen[k]) { seen[k] = true; out.push(item); }
+    });
+    return out;
+  }
+
+  return { parseCommand: parseCommand, matchStudents: matchStudents, tokenize: tokenize, _normAlias: normAlias };
+})();
+
+/* ============================================================================
+ * Money preview calc — mirrors Code.gs computeRow_ exactly.
+ * ============================================================================ */
+function computePreview(groupObj, locationObj, hours, planList, attendedList) {
+  const rentTotal = locationObj.rent;
+  const rentTeacher = groupObj.teacherRoomFee;
+  const rate = groupObj.rate;
+  const planCount = planList.length;
+  const attendCount = attendedList.length;
+  const rentPerStudent = attendCount > 0 ? Math.max(0, rentTotal - rentTeacher) / attendCount : 0;
+  const planRevenue = hours * rate * planCount;
+  const revenue = hours * rate * attendCount;
+  const revenueAfterRoom = revenue - rentTeacher;
+  return {
+    rentTotal: rentTotal, rentTeacher: rentTeacher, rentPerStudent: rentPerStudent,
+    rate: rate, planCount: planCount, attendCount: attendCount,
+    planRevenue: planRevenue, revenue: revenue, revenueAfterRoom: revenueAfterRoom
+  };
+}
+
+/* ============================================================================
+ * App state, cache, API
+ * ============================================================================ */
+const State = {
+  online: navigator.onLine,
+  sessions: [],
+  payments: [],
+  summary: [],
+  lastAction: null, // for undo
+  pendingQueue: [],
+  currentParse: null,
+  pickerSelection: {}
+};
+
+function loadCache() {
+  try {
+    const raw = localStorage.getItem('tutorpwa_config');
+    if (raw) {
+      const c = JSON.parse(raw);
+      if (c.locations) CONFIG.locations = c.locations;
+      if (c.groups) CONFIG.groups = c.groups;
+      if (c.students) CONFIG.students = c.students;
+    }
+    const sess = localStorage.getItem('tutorpwa_sessions');
+    if (sess) State.sessions = JSON.parse(sess);
+    const pay = localStorage.getItem('tutorpwa_payments');
+    if (pay) State.payments = JSON.parse(pay);
+    const q = localStorage.getItem('tutorpwa_queue');
+    if (q) State.pendingQueue = JSON.parse(q);
+  } catch (e) { console.warn('cache load failed', e); }
+}
+function saveCache() {
+  try {
+    localStorage.setItem('tutorpwa_config', JSON.stringify({ locations: CONFIG.locations, groups: CONFIG.groups, students: CONFIG.students }));
+    localStorage.setItem('tutorpwa_sessions', JSON.stringify(State.sessions));
+    localStorage.setItem('tutorpwa_payments', JSON.stringify(State.payments));
+    localStorage.setItem('tutorpwa_queue', JSON.stringify(State.pendingQueue));
+  } catch (e) { console.warn('cache save failed', e); }
+}
+
+function apiGet(action, params) {
+  params = params || {};
+  const usp = new URLSearchParams(Object.assign({ action: action, token: CONFIG.TOKEN }, params));
+  return fetch(CONFIG.GAS_URL + '?' + usp.toString()).then(function (r) { return r.json(); });
+}
+function apiPost(action, payload) {
+  return fetch(CONFIG.GAS_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // avoid CORS preflight on Apps Script
+    body: JSON.stringify({ token: CONFIG.TOKEN, action: action, payload: payload })
+  }).then(function (r) { return r.json(); });
+}
+
+function queuePost(action, payload) {
+  State.pendingQueue.push({ id: uuid(), action: action, payload: payload, ts: Date.now() });
+  saveCache();
+  renderHistory();
+}
+function flushQueue() {
+  if (!State.online || State.pendingQueue.length === 0) return;
+  const queue = State.pendingQueue.slice();
+  State.pendingQueue = [];
+  queue.forEach(function (item) {
+    apiPost(item.action, item.payload).then(function (res) {
+      if (!res.ok) { State.pendingQueue.push(item); saveCache(); renderHistory(); }
+    }).catch(function () {
+      State.pendingQueue.push(item); saveCache(); renderHistory();
+    });
+  });
+  saveCache();
+}
+
+function toast(msg) {
+  const el = document.createElement('div');
+  el.className = 'toast';
+  el.textContent = msg;
+  document.body.appendChild(el);
+  setTimeout(function () { el.remove(); }, 2200);
+}
+
+/* ============================================================================
+ * Navigation
+ * ============================================================================ */
+function showScreen(name) {
+  document.querySelectorAll('.screen').forEach(function (s) { s.classList.remove('active'); });
+  document.getElementById('screen-' + name).classList.add('active');
+  document.querySelectorAll('.navbtn').forEach(function (b) {
+    b.classList.toggle('active', b.dataset.screen === name);
+  });
+  if (name === 'history') renderHistory();
+  if (name === 'summary') renderSummary();
+  if (name === 'payments') renderPayments();
+}
+document.querySelectorAll('.navbtn').forEach(function (b) {
+  b.addEventListener('click', function () { showScreen(b.dataset.screen); });
+});
+
+/* ============================================================================
+ * DISPATCH screen rendering
+ * ============================================================================ */
+const cmdInput = document.getElementById('cmdInput');
+const dispatchPreview = document.getElementById('dispatchPreview');
+
+function statusBadge(status) {
+  if (status === 'plan') return '<span class="badge plan">📅 แผน</span>';
+  if (status === 'taught') return '<span class="badge taught">✅ สอนแล้ว</span>';
+  if (status === 'cancel') return '<span class="badge cancel">❌ ยกเลิก</span>';
+  return '<span class="badge pending">-</span>';
+}
+
+function renderDispatchPreview() {
+  const val = cmdInput.value;
+  const result = Parser.parseCommand(val, CONFIG);
+  State.currentParse = result;
+
+  if (result.kind === 'empty') {
+    dispatchPreview.innerHTML = '<div class="console-hint">พิมพ์คำสั่งสั้น ๆ เช่น <b>กลุ่ม1 จอย 2ชม Heng,Pim</b><br>เช็คอิน: <b>มา Heng Pim กลุ่ม1 มด</b> &nbsp; ยกเลิก: <b>ยกเลิก กลุ่ม3 สตบ 15/5</b></div>';
+    return;
+  }
+  if (result.kind === 'error') {
+    dispatchPreview.innerHTML = '<div class="card error-card list-enter"><div class="msg">⚠️ ' + escapeHtml(result.message) + '</div></div>';
+    return;
+  }
+  if (result.kind === 'pick-students') {
+    const rosterHtml = result.roster.map(function (s) {
+      const checked = State.pickerSelection[s.name] ? 'checked' : '';
+      return '<div class="picker-item ' + checked + '" data-name="' + escapeHtml(s.name) + '">' +
+        (State.pickerSelection[s.name] ? '☑' : '☐') + ' ' + escapeHtml(s.name) + '</div>';
+    }).join('');
+    dispatchPreview.innerHTML =
+      '<div class="card list-enter"><h3>เลือกนักเรียน — ' + escapeHtml(result.group) + ' · ' + escapeHtml(result.location) + '</h3>' +
+      '<div class="picker-list" id="pickerList">' + rosterHtml + '</div>' +
+      '<div class="btn-row"><button class="btn btn-primary btn-block" id="pickerConfirmBtn">ยืนยันรายชื่อที่เลือก</button></div>' +
+      '</div>';
+    document.querySelectorAll('#pickerList .picker-item').forEach(function (el) {
+      el.addEventListener('click', function () {
+        const n = el.dataset.name;
+        State.pickerSelection[n] = !State.pickerSelection[n];
+        renderDispatchPreview();
+      });
+    });
+    const btn = document.getElementById('pickerConfirmBtn');
+    if (btn) btn.addEventListener('click', function () {
+      const chosen = Object.keys(State.pickerSelection).filter(function (k) { return State.pickerSelection[k]; });
+      if (chosen.length === 0) { toast('กรุณาเลือกนักเรียนอย่างน้อย 1 คน'); return; }
+      const confirmResult = {
+        kind: 'confirm', mode: 1,
+        group: result.group, subject: result.subject, location: result.location,
+        hours: result.hours, date: result.date, status: result.status, students: chosen
+      };
+      State.pickerSelection = {};
+      renderConfirmCard(confirmResult);
+    });
+    return;
+  }
+  if (result.kind === 'confirm') {
+    renderConfirmCard(result);
+  }
+}
+
+function findConfig(name, list, key) {
+  return list.filter(function (x) { return x[key] === name; })[0];
+}
+
+function renderConfirmCard(result) {
+  const groupObj = findConfig(result.group, CONFIG.groups, 'name');
+  const locObj = findConfig(result.location, CONFIG.locations, 'name');
+  let bodyHtml = '';
+
+  if (result.mode === 'cancel') {
+    bodyHtml =
+      '<h3>ยืนยันการยกเลิก</h3>' +
+      row('กลุ่ม', result.group + ' (' + result.subject + ')') +
+      row('สถานที่', result.location) +
+      row('วันที่', thaiDateLabel(result.date) + ' ' + result.date) +
+      row('สถานะใหม่', statusBadge('cancel'));
+  } else if (result.mode === 2) {
+    const dateLabel = result.date ? thaiDateLabel(result.date) + ' ' + result.date : 'ใช้แผนที่ใกล้ที่สุด (ระบบจะค้นหาให้)';
+    bodyHtml =
+      '<h3>ยืนยันการเช็คอิน</h3>' +
+      row('กลุ่ม', result.group + ' (' + result.subject + ')') +
+      row('สถานที่', result.location) +
+      row('วันที่เข้าเรียน', dateLabel) +
+      row('นักเรียนที่มา', result.students.join(', ') || '-') +
+      row('สถานะใหม่', statusBadge('taught'));
+  } else {
+    const preview = computePreview(groupObj, locObj, result.hours, result.students, (result.status === 'taught' ? result.students : []));
+    bodyHtml =
+      '<h3>ยืนยันคาบเรียน</h3>' +
+      row('กลุ่ม', result.group + ' (' + result.subject + ')') +
+      row('สถานที่', result.location) +
+      row('วันที่', thaiDateLabel(result.date) + ' ' + result.date) +
+      row('ชั่วโมง', fmtHours(result.hours) + ' ชม.') +
+      row('นักเรียน', result.students.join(', ')) +
+      row('ค่าเช่ารวม', fmtMoney(preview.rentTotal) + ' บาท') +
+      row('ครูออกค่าห้อง', fmtMoney(preview.rentTeacher) + ' บาท') +
+      row('เด็กออกค่าห้อง/คน', fmtMoney(preview.rentPerStudent) + ' บาท') +
+      row('รายได้โดยประมาณ', fmtMoney(result.status === 'taught' ? preview.revenue : preview.planRevenue) + ' บาท') +
+      row('สถานะ', statusBadgeToggle(result.status));
+  }
+
+  dispatchPreview.innerHTML =
+    '<div class="card confirm-card list-enter">' + bodyHtml +
+    '<div class="btn-row"><button class="btn btn-ghost" id="cancelBtn" style="flex:1;">ยกเลิก</button>' +
+    '<button class="btn btn-primary" id="confirmBtn" style="flex:2;">✓ ยืนยันบันทึก</button></div>' +
+    '</div>';
+
+  document.getElementById('cancelBtn').addEventListener('click', function () {
+    cmdInput.value = ''; renderDispatchPreview();
+  });
+  document.getElementById('confirmBtn').addEventListener('click', function () {
+    submitParsedResult(result);
+  });
+
+  const toggle = document.getElementById('statusToggle');
+  if (toggle) {
+    toggle.addEventListener('click', function () {
+      result.status = result.status === 'taught' ? 'plan' : 'taught';
+      renderConfirmCard(result);
+    });
+  }
+}
+
+function statusBadgeToggle(status) {
+  const label = status === 'taught' ? statusBadge('taught') : statusBadge('plan');
+  return '<span id="statusToggle" style="cursor:pointer;">' + label + ' ✏️</span>';
+}
+
+function row(k, v) {
+  return '<div class="row"><span class="k">' + k + '</span><span class="v">' + v + '</span></div>';
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
+}
+
+cmdInput.addEventListener('input', renderDispatchPreview);
+document.getElementById('cmdGo').addEventListener('click', function () {
+  if (State.currentParse && State.currentParse.kind === 'confirm') {
+    submitParsedResult(State.currentParse);
+  }
+});
+
+function statusToStatusLabel(status) {
+  if (status === 'plan') return '📅 แผน';
+  if (status === 'taught') return '✅ สอนแล้ว';
+  if (status === 'cancel') return '❌ ยกเลิก';
+  return status;
+}
+
+function submitParsedResult(result) {
+  const clientKey = uuid();
+  const groupObj = findConfig(result.group, CONFIG.groups, 'name');
+  const locObj = findConfig(result.location, CONFIG.locations, 'name');
+
+  if (result.mode === 'cancel') {
+    const payload = { group: result.group, location: result.location, date: result.date, clientKey: clientKey };
+    doPostAction('cancelSession', payload, 'ยกเลิกคาบเรียนแล้ว');
+    return;
+  }
+  if (result.mode === 2) {
+    const payload = {
+      clientKey: clientKey, group: result.group, location: result.location,
+      date: result.date, dateAttended: result.date, attendedList: result.students
+    };
+    doPostAction('checkIn', payload, 'เช็คอินสำเร็จ');
+    return;
+  }
+  const status = statusToStatusLabel(result.status);
+  const payload = {
+    clientKey: clientKey, group: result.group, location: result.location,
+    status: status, date: result.date, hours: result.hours,
+    planList: result.students,
+    attendedList: result.status === 'taught' ? result.students : [],
+    dateAttended: result.status === 'taught' ? result.date : ''
+  };
+  doPostAction('addSession', payload, 'บันทึกคาบเรียนแล้ว');
+}
+
+function doPostAction(action, payload, successMsg) {
+  const localEntry = Object.assign({ clientKey: payload.clientKey, _localAction: action, rowIndex: null }, payload);
+  State.lastAction = { action: action, payload: payload };
+
+  if (!State.online) {
+    queuePost(action, payload);
+    toast('ออฟไลน์ — บันทึกคำสั่งไว้รอซิงค์');
+    cmdInput.value = '';
+    renderDispatchPreview();
+    return;
+  }
+  apiPost(action, payload).then(function (res) {
+    if (res.ok) {
+      toast(successMsg);
+      refreshSessions();
+    } else {
+      toast('เกิดข้อผิดพลาด: ' + (res.error || 'unknown'));
+      queuePost(action, payload);
+    }
+  }).catch(function () {
+    toast('ส่งไม่สำเร็จ — เข้าคิวออฟไลน์');
+    queuePost(action, payload);
+  });
+  cmdInput.value = '';
+  renderDispatchPreview();
+}
+
+/* ============================================================================
+ * HISTORY screen
+ * ============================================================================ */
+function renderHistory() {
+  const list = document.getElementById('historyList');
+  const queueHtml = State.pendingQueue.map(function (q, i) {
+    return '<div class="card list-enter" style="animation-delay:' + (i * 40) + 'ms;">' +
+      '<div class="session-row"><div><span class="pending-badge">⏳ PENDING SYNC</span><div class="meta">' + q.action + '</div></div></div></div>';
+  }).join('');
+
+  const sessions = State.sessions.slice().sort(function (a, b) {
+    return (b.dateAttended || b.dateEntered).localeCompare(a.dateAttended || a.dateEntered);
+  }).slice(0, 50);
+
+  if (sessions.length === 0 && State.pendingQueue.length === 0) {
+    list.innerHTML = '<div class="empty-state"><span class="big">ยังไม่มีข้อมูล</span>ลองบันทึกคาบเรียนแรกที่แท็บ Dispatch</div>';
+    return;
+  }
+
+  const sessHtml = sessions.map(function (s, i) {
+    const badgeClass = s.status === STATUS_LABEL.TAUGHT ? 'taught' : (s.status === STATUS_LABEL.CANCELLED ? 'cancel' : 'plan');
+    return '<div class="card list-enter" style="animation-delay:' + (i * 40) + 'ms;">' +
+      '<div class="session-row">' +
+      '<div><span class="badge ' + badgeClass + '">' + escapeHtml(s.status) + '</span>' +
+      '<div class="meta">' + escapeHtml(s.group) + ' · ' + escapeHtml(s.location) + ' · ' + (s.dateAttended || s.dateEntered) + ' · ' + s.hours + 'ชม.</div>' +
+      '<div class="meta">นักเรียน: ' + escapeHtml(s.attended || s.plan || '-') + '</div>' +
+      '<div class="meta">รายได้: ' + fmtMoney(s.revenue || s.planRevenue || 0) + ' บาท</div></div>' +
+      '<div class="actions"><button class="iconbtn" data-edit="' + s.rowIndex + '">✎</button>' +
+      '<button class="iconbtn" data-del="' + s.rowIndex + '">🗑</button></div>' +
+      '</div></div>';
+  }).join('');
+
+  list.innerHTML = queueHtml + sessHtml;
+
+  list.querySelectorAll('[data-del]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      const rowIndex = parseInt(btn.dataset.del, 10);
+      if (!confirm('ลบรายการนี้?')) return;
+      apiPost('deleteSession', { rowIndex: rowIndex }).then(function (res) {
+        if (res.ok) { toast('ลบแล้ว'); refreshSessions(); }
+      }).catch(function () { toast('ลบไม่สำเร็จ (ออฟไลน์?)'); });
+    });
+  });
+  list.querySelectorAll('[data-edit]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      toast('แก้ไขได้จาก Google Sheet โดยตรง (edit-in-place ผ่าน UI จะมาเวอร์ชันถัดไป)');
+    });
+  });
+}
+
+const STATUS_LABEL = { PLAN: '📅 แผน', TAUGHT: '✅ สอนแล้ว', CANCELLED: '❌ ยกเลิก' };
+
+document.getElementById('undoBtn').addEventListener('click', function () {
+  if (!State.lastAction) { toast('ไม่มีการกระทำล่าสุดให้ย้อนกลับ'); return; }
+  const la = State.lastAction;
+  if (la.action === 'addSession' || la.action === 'checkIn') {
+    // find row by clientKey in cached sessions
+    const match = State.sessions.filter(function (s) { return s.clientKey === la.payload.clientKey; })[0];
+    if (match && match.rowIndex) {
+      apiPost('deleteSession', { rowIndex: match.rowIndex }).then(function (res) {
+        if (res.ok) { toast('ย้อนกลับสำเร็จ'); State.lastAction = null; refreshSessions(); }
+      });
+    } else {
+      toast('ยังไม่พบแถวที่จะย้อนกลับ (ลองรีเฟรชอีกครั้ง)');
+    }
+  } else {
+    toast('การกระทำนี้ยังไม่รองรับ Undo อัตโนมัติ');
+  }
+});
+
+/* ============================================================================
+ * SUMMARY screen
+ * ============================================================================ */
+function currentMonthStr() {
+  const d = bkkNow();
+  return d.getFullYear() + '-' + pad2(d.getMonth() + 1);
+}
+const monthPicker = document.getElementById('monthPicker');
+monthPicker.value = currentMonthStr();
+monthPicker.addEventListener('change', renderSummary);
+
+function renderSummary() {
+  const month = monthPicker.value;
+  const content = document.getElementById('summaryContent');
+  const sessions = State.sessions.filter(function (s) {
+    const ref = s.dateAttended || s.dateEntered || '';
+    return ref.slice(0, 7) === month;
+  });
+
+  if (sessions.length === 0) {
+    content.innerHTML = '<div class="empty-state"><span class="big">ไม่มีข้อมูลเดือนนี้</span></div>';
+    return;
+  }
+
+  // per group
+  const byGroup = {};
+  sessions.forEach(function (s) {
+    byGroup[s.group] = byGroup[s.group] || { sessions: 0, hours: 0, revenue: 0, teacherRoomCost: 0 };
+    byGroup[s.group].sessions++;
+    byGroup[s.group].hours += s.hours || 0;
+    byGroup[s.group].revenue += s.revenue || 0;
+    byGroup[s.group].teacherRoomCost += s.rentTeacher || 0;
+  });
+  // per location
+  const byLoc = {};
+  sessions.forEach(function (s) {
+    byLoc[s.location] = byLoc[s.location] || { sessions: 0, hours: 0, revenue: 0, teacherRoomCost: 0 };
+    byLoc[s.location].sessions++;
+    byLoc[s.location].hours += s.hours || 0;
+    byLoc[s.location].revenue += s.revenue || 0;
+    byLoc[s.location].teacherRoomCost += s.rentTeacher || 0;
+  });
+  // per student
+  const byStudent = {};
+  sessions.forEach(function (s) {
+    const names = (s.attended || '').split(',').map(function (x) { return x.trim(); }).filter(Boolean);
+    names.forEach(function (n) {
+      byStudent[n] = byStudent[n] || { sessions: 0, hours: 0 };
+      byStudent[n].sessions++;
+      byStudent[n].hours += s.hours || 0;
+    });
+  });
+
+  const totalRevenue = sessions.reduce(function (a, s) { return a + (s.revenue || 0); }, 0);
+  const totalTeacherRoom = sessions.reduce(function (a, s) { return a + (s.rentTeacher || 0); }, 0);
+  const netProfit = totalRevenue - totalTeacherRoom;
+
+  function tableFrom(obj, labelHeader) {
+    const rows = Object.keys(obj).map(function (k) {
+      const v = obj[k];
+      const net = v.revenue - v.teacherRoomCost;
+      return '<tr><td>' + escapeHtml(k) + '</td><td class="num">' + v.sessions + '</td><td class="num">' + fmtHours(v.hours) +
+        '</td><td class="num">' + fmtMoney(v.revenue) + '</td><td class="num">' + fmtMoney(v.teacherRoomCost) + '</td><td class="num">' + fmtMoney(net) + '</td></tr>';
+    }).join('');
+    return '<table class="breakdown"><thead><tr><th>' + labelHeader + '</th><th class="num">ครั้ง</th><th class="num">ชม.</th><th class="num">รายได้</th><th class="num">ครูออกค่าห้อง</th><th class="num">กำไรสุทธิ</th></tr></thead><tbody>' + rows + '</tbody></table>';
+  }
+  const studentRows = Object.keys(byStudent).map(function (k) {
+    const v = byStudent[k];
+    return '<tr><td>' + escapeHtml(k) + '</td><td class="num">' + v.sessions + '</td><td class="num">' + fmtHours(v.hours) + '</td></tr>';
+  }).join('');
+
+  content.innerHTML =
+    '<div class="stat-grid">' +
+    '<div class="stat-tile"><div class="label">รายได้รวม</div><div class="value">฿' + fmtMoney(totalRevenue) + '</div></div>' +
+    '<div class="stat-tile"><div class="label">กำไรสุทธิ</div><div class="value">฿' + fmtMoney(netProfit) + '</div></div>' +
+    '</div>' +
+    '<div class="card list-enter"><h3>ตามกลุ่ม</h3>' + tableFrom(byGroup, 'กลุ่ม') + '</div>' +
+    '<div class="card list-enter"><h3>ตามสถานที่</h3>' + tableFrom(byLoc, 'สถานที่') + '</div>' +
+    '<div class="card list-enter"><h3>ตามนักเรียน</h3><table class="breakdown"><thead><tr><th>นักเรียน</th><th class="num">ครั้ง</th><th class="num">ชม.</th></tr></thead><tbody>' + studentRows + '</tbody></table></div>';
+}
+
+/* ============================================================================
+ * PAYMENTS screen
+ * ============================================================================ */
+function buildFollowupMessage(studentName, group, unpaidSessions, rate) {
+  let lines = [];
+  lines.push('ขอสรุปค่าเรียนนะคะ 🙏');
+  lines.push('👤 ' + studentName + ' (' + group + ')');
+  lines.push('');
+  unpaidSessions.forEach(function (s) {
+    lines.push(thaiDateLabel(s.dateAttended));
+    lines.push('   📍 ' + s.location);
+  });
+  lines.push('');
+  lines.push('——————————');
+  const totalHours = unpaidSessions.reduce(function (a, s) { return a + (s.hours || 0); }, 0);
+  const totalTeachingFee = unpaidSessions.reduce(function (a, s) { return a + (s.amountTeach || 0); }, 0);
+  const totalRoomFee = unpaidSessions.reduce(function (a, s) { return a + (s.amountRoom || 0); }, 0);
+  const grandTotal = totalTeachingFee + totalRoomFee;
+  lines.push('💰 ค่าเรียน ' + fmtMoney(rate) + ' บาท/ชม.');
+  lines.push('⏱️ ทั้งหมด ' + fmtHours(totalHours) + ' ชั่วโมง');
+  lines.push('   = ' + fmtMoney(totalTeachingFee) + ' บาท');
+  lines.push('🏢 ค่าห้อง = ' + fmtMoney(totalRoomFee) + ' บาท');
+  lines.push('💵 รวม ' + fmtMoney(grandTotal) + ' บาทค่ะ');
+  lines.push('——————————');
+  lines.push('🏦 ' + CONFIG.BANK_NAME);
+  lines.push(CONFIG.TEACHER_NAME);
+  lines.push('เลขบัญชี ' + CONFIG.ACCOUNT_NUMBER);
+  lines.push('——————————');
+  lines.push('📲 ผู้ปกครองโอนแล้วรบกวน');
+  lines.push('ส่งสลิปให้คุณครูนะคะ');
+  lines.push('ขอบพระคุณค่ะ 🙏');
+  return lines.join('\n');
+}
+
+function renderPayments() {
+  const list = document.getElementById('paymentsList');
+  const byStudent = {};
+  State.payments.forEach(function (p) {
+    byStudent[p.student] = byStudent[p.student] || { group: p.group, rows: [], outstanding: 0 };
+    byStudent[p.student].rows.push(p);
+    byStudent[p.student].outstanding += (p.outstanding || 0);
+  });
+
+  const names = Object.keys(byStudent);
+  if (names.length === 0) {
+    list.innerHTML = '<div class="empty-state"><span class="big">ไม่มีข้อมูลการเงิน</span>ข้อมูลจะมาจากแท็บ รายละเอียดรายนักเรียน</div>';
+    return;
+  }
+
+  list.innerHTML = names.map(function (name, i) {
+    const d = byStudent[name];
+    const zero = d.outstanding <= 0;
+    return '<div class="card list-enter" style="animation-delay:' + (i * 40) + 'ms;" data-student="' + escapeHtml(name) + '">' +
+      '<div class="pay-row"><span class="name">' + escapeHtml(name) + ' <span style="color:var(--text-muted);font-size:12px;">(' + escapeHtml(d.group) + ')</span></span>' +
+      '<span class="outstanding ' + (zero ? 'zero' : '') + '">฿' + fmtMoney(d.outstanding) + '</span></div>' +
+      '<div class="btn-row">' +
+      '<button class="btn btn-ghost copy-btn" data-copy="' + escapeHtml(name) + '">📋 คัดลอกข้อความทวงเงิน</button>' +
+      '<button class="btn btn-primary" data-mark="' + escapeHtml(name) + '">บันทึกการจ่าย</button>' +
+      '</div></div>';
+  }).join('');
+
+  list.querySelectorAll('[data-copy]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      const name = btn.dataset.copy;
+      const d = byStudent[name];
+      const unpaid = d.rows.filter(function (r) { return !r.paid; });
+      const rate = findConfig(d.group, CONFIG.groups, 'name');
+      const msg = buildFollowupMessage(name, d.group, unpaid, rate ? rate.rate : 0);
+      navigator.clipboard.writeText(msg).then(function () {
+        toast('คัดลอกข้อความแล้ว');
+      }).catch(function () {
+        toast('คัดลอกไม่สำเร็จ');
+      });
+    });
+  });
+  list.querySelectorAll('[data-mark]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      const name = btn.dataset.mark;
+      const d = byStudent[name];
+      const unpaidRow = d.rows.filter(function (r) { return !r.paid; })[0];
+      if (!unpaidRow) { toast('ไม่มีรายการค้างจ่าย'); return; }
+      const amountStr = prompt('รับเงินมาแล้วกี่บาท? (ยอดเต็ม ' + fmtMoney(unpaidRow.amountTotal) + ' บาท)', unpaidRow.amountTotal);
+      if (amountStr === null) return;
+      const amount = parseFloat(amountStr) || 0;
+      apiPost('recordPayment', { rowIndex: unpaidRow.rowIndex, paid: amount >= unpaidRow.amountTotal, received: amount }).then(function (res) {
+        if (res.ok) { toast('บันทึกการจ่ายแล้ว'); refreshPayments(); }
+        else toast('บันทึกไม่สำเร็จ');
+      }).catch(function () { toast('ออฟไลน์ — ลองใหม่ภายหลัง'); });
+    });
+  });
+}
+
+/* ============================================================================
+ * Data refresh
+ * ============================================================================ */
+function refreshConfig() {
+  return Promise.all([apiGet('config'), apiGet('students')]).then(function (results) {
+    const cfgRes = results[0], stuRes = results[1];
+    if (cfgRes.ok && cfgRes.data) {
+      cfgRes.data.locations.forEach(function (l) {
+        const existing = findConfig(l.name, CONFIG.locations, 'name');
+        if (existing) { existing.rent = l.rent; }
+        else CONFIG.locations.push(Object.assign({ aliases: [] }, l));
+      });
+      cfgRes.data.groups.forEach(function (g) {
+        const existing = findConfig(g.name, CONFIG.groups, 'name');
+        if (existing) { existing.rate = g.rate; existing.teacherRoomFee = g.teacherRoomFee; existing.subject = g.subject; }
+        else CONFIG.groups.push(Object.assign({ aliases: [] }, g));
+      });
+    }
+    if (stuRes.ok && stuRes.data) {
+      CONFIG.students = stuRes.data.map(function (s) { return { code: s.code, name: s.name, group: s.group }; });
+    }
+    saveCache();
+  }).catch(function (e) { console.warn('refreshConfig failed, using cache', e); });
+}
+
+function refreshSessions() {
+  return apiGet('sessions').then(function (res) {
+    if (res.ok && res.data) {
+      State.sessions = res.data;
+      saveCache();
+      renderHistory();
+      renderSummary();
+    }
+  }).catch(function (e) { console.warn('refreshSessions failed, using cache', e); });
+}
+
+function refreshPayments() {
+  return apiGet('payments').then(function (res) {
+    if (res.ok && res.data) {
+      State.payments = res.data;
+      saveCache();
+      renderPayments();
+    }
+  }).catch(function (e) { console.warn('refreshPayments failed, using cache', e); });
+}
+
+/* ============================================================================
+ * Online/offline handling
+ * ============================================================================ */
+function updateNetStatus() {
+  State.online = navigator.onLine;
+  document.getElementById('netDot').className = 'status-dot ' + (State.online ? 'online' : 'offline');
+  document.getElementById('netLabel').textContent = State.online ? 'online' : 'offline';
+}
+window.addEventListener('online', function () { updateNetStatus(); flushQueue(); });
+window.addEventListener('offline', updateNetStatus);
+
+/* ============================================================================
+ * Service worker registration
+ * ============================================================================ */
+if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+  window.addEventListener('load', function () {
+    navigator.serviceWorker.register('./sw.js').catch(function (e) { console.warn('SW registration failed', e); });
+  });
+}
+
+/* ============================================================================
+ * runParserTests — only runs with ?test=1 in the URL. console.assert-based.
+ * ============================================================================ */
+function runParserTests() {
+  const TODAY = '2026-07-12'; // Sunday, fixed reference for deterministic tests
+  let pass = 0, fail = 0;
+  function check(name, cond, extra) {
+    if (cond) { pass++; console.log('PASS:', name); }
+    else { fail++; console.error('FAIL:', name, extra || ''); }
+  }
+
+  let r;
+
+  // 1. missing students -> picker, not error/guess
+  r = Parser.parseCommand('กลุ่ม1 จอย 2ชม', CONFIG, TODAY);
+  check('1: pick-students triggered', r.kind === 'pick-students', r);
+
+  // 2. fully resolved
+  r = Parser.parseCommand('กลุ่ม1 มด 2ชม Heng,Pim,Kee', CONFIG, TODAY);
+  check('2: fully resolved', r.kind === 'confirm' && r.mode === 1 && r.students.length === 3, r);
+
+  // 3. subject alias
+  r = Parser.parseCommand('คณิต จอย 1.5ชม Heng Pim', CONFIG, TODAY);
+  check('3: subject alias -> กลุ่ม 1', r.kind === 'confirm' && r.group === 'กลุ่ม 1' && r.hours === 1.5, r);
+
+  // 4. yesterday
+  r = Parser.parseCommand('ฟิสิกส์ มด 2ชม เมื่อวาน Nut Toei', CONFIG, TODAY);
+  check('4: yesterday date', r.kind === 'confirm' && r.date === addDays(TODAY, -1), r);
+
+  // 5. last Monday
+  r = Parser.parseCommand('เคมี สตบ 2ชม จ ที่แล้ว Prang', CONFIG, TODAY);
+  const expectedMonday = (function () {
+    const d = new Date(TODAY + 'T00:00:00');
+    let diff = (d.getDay() - 1 + 7) % 7; if (diff === 0) diff = 7;
+    return addDays(TODAY, -diff);
+  })();
+  check('5: last Monday', r.kind === 'confirm' && r.date === expectedMonday, r);
+
+  // 6. check-in mode via มา
+  r = Parser.parseCommand('มา Heng Pim Kee กลุ่ม1 มด', CONFIG, TODAY);
+  check('6: check-in mode', r.kind === 'confirm' && r.mode === 2 && r.students.length === 3, r);
+
+  // 7. check-in via เช็ค
+  r = Parser.parseCommand('เช็ค กลุ่ม2 สตบ มา Nut', CONFIG, TODAY);
+  check('7: check-in via เช็ค', r.kind === 'confirm' && r.mode === 2 && r.students.indexOf('Nut') !== -1, r);
+
+  // 8. cancel intent
+  r = Parser.parseCommand('ยกเลิก กลุ่ม3 สตบ 15/5', CONFIG, TODAY);
+  check('8: cancel intent', r.kind === 'confirm' && r.mode === 'cancel', r);
+
+  // 9. พ.ศ. year conversion
+  r = Parser.parseCommand('กลุ่ม1 26/5/2569 มด 2ชม Heng', CONFIG, TODAY);
+  check('9: พ.ศ. -> ค.ศ.', r.kind === 'confirm' && r.date === '2026-05-26', r);
+
+  // 10. invalid group, no fallback
+  r = Parser.parseCommand('กลุ่ม4 จอย 1ชม', CONFIG, TODAY);
+  check('10: invalid group error', r.kind === 'error', r);
+
+  // 11. missing group, asks
+  r = Parser.parseCommand('จอย 2ชม Heng', CONFIG, TODAY);
+  check('11: missing group asks', r.kind === 'error' && /กลุ่ม/.test(r.message), r);
+
+  // 12. invalid location
+  r = Parser.parseCommand('กลุ่ม1 นครสวรรค์ 2ชม', CONFIG, TODAY);
+  check('12: invalid location error', r.kind === 'error' && /สถานที่/.test(r.message), r);
+
+  // 13. half hour
+  r = Parser.parseCommand('กลุ่ม1 จอย ครึ่งชม Heng', CONFIG, TODAY);
+  check('13: half hour = 0.5', r.kind === 'confirm' && r.hours === 0.5, r);
+
+  // 14. tomorrow -> plan status
+  r = Parser.parseCommand('กลุ่ม2 มด 2ชม พรุ่งนี้ Nut Toei', CONFIG, TODAY);
+  check('14: tomorrow -> plan status', r.kind === 'confirm' && r.status === 'plan' && r.date === addDays(TODAY, 1), r);
+
+  // 15. empty input, no crash
+  r = Parser.parseCommand('', CONFIG, TODAY);
+  check('15: empty input', r.kind === 'empty', r);
+
+  // 16. no hours, not check-in -> asks for hours
+  r = Parser.parseCommand('กลุ่ม1 มด Heng', CONFIG, TODAY);
+  check('16: missing hours asks', r.kind === 'error' && /ชั่วโมง/.test(r.message), r);
+
+  // 17. two locations, no group -> error
+  r = Parser.parseCommand('จอย มด 2ชม', CONFIG, TODAY);
+  check('17: two locations no group -> error', r.kind === 'error', r);
+
+  console.log('==== Parser tests: ' + pass + ' PASS / ' + fail + ' FAIL (of ' + (pass + fail) + ') ====');
+  return { pass: pass, fail: fail };
+}
+
+/* ============================================================================
+ * Boot
+ * ============================================================================ */
+loadCache();
+updateNetStatus();
+renderDispatchPreview();
+
+if (State.online) {
+  refreshConfig().then(function () {
+    return Promise.all([refreshSessions(), refreshPayments()]);
+  }).then(flushQueue);
+} else {
+  renderHistory();
+}
+
+if (new URLSearchParams(location.search).get('test') === '1') {
+  window.addEventListener('load', function () {
+    setTimeout(runParserTests, 300);
+  });
+}
+</script>
+</body>
+</html>

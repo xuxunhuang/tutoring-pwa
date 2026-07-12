@@ -1,0 +1,677 @@
+/**
+ * ============================================================================
+ * ติดตามเรียนพิเศษ - Tutoring Session Tracker - Google Apps Script Web App
+ * ============================================================================
+ * Backend for the tutoring-pwa frontend (index.html). Reads/writes the
+ * Google Sheet "ติดตามเรียนพิเศษ_v3" (5 tabs: ตั้งค่า, นักเรียน, บันทึกการสอน,
+ * รายละเอียดรายนักเรียน, สรุปรายเดือน).
+ *
+ * DEPLOY INSTRUCTIONS ARE AT THE BOTTOM OF THIS FILE.
+ * ============================================================================
+ */
+
+// ▼▼▼ EDIT THIS ONE LINE — paste your Google Sheet ID (the long string in its URL) ▼▼▼
+const SHEET_ID = 'PUT_YOUR_GOOGLE_SHEET_ID_HERE';
+// ▲▲▲ EDIT THIS ONE LINE ▲▲▲
+
+const TZ = 'Asia/Bangkok';
+
+const SHEET_NAMES = {
+  SETTINGS: 'ตั้งค่า',
+  STUDENTS: 'นักเรียน',
+  SESSIONS: 'บันทึกการสอน',
+  PAYMENTS: 'รายละเอียดรายนักเรียน',
+  SUMMARY: 'สรุปรายเดือน'
+};
+
+// บันทึกการสอน column indices (1-based, matches spec A-V)
+const SES_COL = {
+  DATE_ENTERED: 1,        // A วันที่บันทึกข้อมูล
+  GROUP: 2,               // B กลุ่ม
+  LOCATION: 3,            // C สถานที่
+  STATUS: 4,              // D สถานะ
+  RENT_TOTAL: 5,          // E ค่าเช่าห้อง (บาท)
+  RENT_TEACHER: 6,        // F ค่าเช่าห้อง ครูออก (บาท)
+  RENT_PER_STUDENT: 7,    // G ค่าเช่าห้องเด็กออก (บาท) ต่อคน
+  RATE_PER_HOUR: 8,       // H ค่าสอน/คน/ชม.
+  PLAN: 9,                // I Plan
+  ATTENDED: 10,           // J เข้าเรียน
+  DATE_ATTENDED: 11,      // K วันที่เข้าเรียน
+  TIME_START: 12,         // L เวลาเริ่ม
+  TIME_END: 13,           // M เวลาสิ้นสุด
+  HOURS: 14,              // N จำนวนชม.
+  PLAN_COUNT: 15,         // O จำนวนแผน
+  ATTEND_COUNT: 16,       // P จำนวนที่มา
+  PLAN_REVENUE: 17,       // Q แผนรายได้ (บาท)
+  REVENUE: 18,            // R รายได้รวม (บาท)
+  REVENUE_AFTER_ROOM: 19, // S รายได้รวม (บาท) หลังหักค่าเช่าห้องครูออก
+  SETTLED: 20,            // T ✅ ถ่ายโอนแล้ว
+  MESSAGE: 21,            // U Message ตามเด็กเรียน
+  CLIENT_KEY: 22          // V ClientKey (appended by this script if missing)
+};
+
+const STATUS = {
+  PLAN: '📅 แผน',
+  TAUGHT: '✅ สอนแล้ว',
+  CANCELLED: '❌ ยกเลิก'
+};
+
+// รายละเอียดรายนักเรียน columns (1-based)
+const PAY_COL = {
+  STUDENT: 1,       // ชื่อนักเรียน
+  GROUP: 2,         // กลุ่ม
+  DATE_ATTENDED: 3, // วันที่เข้าเรียน
+  LOCATION: 4,      // สถานที่
+  STATUS: 5,        // สถานะคลาส
+  ATTENDED: 6,      // เข้าเรียน
+  HOURS: 7,         // จำนวนชม.
+  AMOUNT_TEACH: 8,  // ยอด/ครั้ง (บาท)
+  AMOUNT_ROOM: 9,   // ค่าเช่าห้อง/ครั้ง (บาท)
+  AMOUNT_TOTAL: 10, // รวมยอด (บาท)
+  PAID: 11,         // จ่ายแล้ว?
+  RECEIVED: 12,     // รับเงินไป (บาท)
+  OUTSTANDING: 13,  // ยอดค้าง (บาท)
+  NOTE: 14,         // หมายเหตุ
+  FOLLOWUP_MSG: 15  // ข้อความติดตามเงิน
+};
+
+// ============================================================================
+// Entry points
+// ============================================================================
+
+function doGet(e) {
+  try {
+    const params = (e && e.parameter) || {};
+    if (!checkToken(params.token)) return jsonOutput({ ok: false, error: 'forbidden' });
+
+    const action = params.action;
+    let data;
+    switch (action) {
+      case 'config':
+        data = getConfig();
+        break;
+      case 'students':
+        data = getStudents();
+        break;
+      case 'sessions':
+        data = getSessions(params.month || null);
+        break;
+      case 'summary':
+        data = getSummary(params.month || null);
+        break;
+      case 'payments':
+        data = getPayments(params.student || null);
+        break;
+      default:
+        return jsonOutput({ ok: false, error: 'unknown action' });
+    }
+    return jsonOutput({ ok: true, data: data });
+  } catch (err) {
+    return jsonOutput({ ok: false, error: String(err && err.message || err) });
+  }
+}
+
+function doPost(e) {
+  try {
+    const body = JSON.parse(e.postData.contents || '{}');
+    if (!checkToken(body.token)) return jsonOutput({ ok: false, error: 'forbidden' });
+
+    const action = body.action;
+    const payload = body.payload || {};
+    let result;
+    switch (action) {
+      case 'addSession':
+        result = addSession(payload);
+        break;
+      case 'checkIn':
+        result = checkIn(payload);
+        break;
+      case 'cancelSession':
+        result = cancelSession(payload);
+        break;
+      case 'updateSession':
+        result = updateSession(payload);
+        break;
+      case 'deleteSession':
+        result = deleteSession(payload);
+        break;
+      case 'recordPayment':
+        result = recordPayment(payload);
+        break;
+      default:
+        return jsonOutput({ ok: false, error: 'unknown action' });
+    }
+    return jsonOutput({ ok: true, data: result });
+  } catch (err) {
+    return jsonOutput({ ok: false, error: String(err && err.message || err) });
+  }
+}
+
+function checkToken(token) {
+  const expected = PropertiesService.getScriptProperties().getProperty('TUTOR_APP_TOKEN');
+  return expected && token && token === expected;
+}
+
+function jsonOutput(obj) {
+  return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
+}
+
+// ============================================================================
+// Sheet helpers
+// ============================================================================
+
+function ss_() {
+  return SpreadsheetApp.openById(SHEET_ID);
+}
+
+function sheet_(name) {
+  const sh = ss_().getSheetByName(name);
+  if (!sh) throw new Error('Sheet tab not found: ' + name);
+  return sh;
+}
+
+function getAllRows_(sheetName) {
+  const sh = sheet_(sheetName);
+  const lastRow = sh.getLastRow();
+  const lastCol = sh.getLastColumn();
+  if (lastRow < 2) return { header: [], rows: [] };
+  const values = sh.getRange(1, 1, lastRow, lastCol).getValues();
+  return { header: values[0], rows: values.slice(1) };
+}
+
+function fmtDate_(d) {
+  if (!d) return '';
+  if (typeof d === 'string') return d; // already ISO
+  return Utilities.formatDate(d, TZ, 'yyyy-MM-dd');
+}
+
+function fmtTime_(t) {
+  if (!t) return '';
+  if (typeof t === 'string') return t;
+  return Utilities.formatDate(t, TZ, 'HH:mm');
+}
+
+function parseNames_(str) {
+  if (!str) return [];
+  return String(str).split(',').map(function (s) { return s.trim(); }).filter(Boolean);
+}
+
+// ============================================================================
+// GET actions
+// ============================================================================
+
+function getConfig() {
+  const sh = sheet_(SHEET_NAMES.SETTINGS);
+  const lastRow = sh.getLastRow();
+  if (lastRow < 2) return { locations: [], groups: [], bank: {} };
+
+  // Locations: columns A-C (1-3)
+  const locVals = sh.getRange(2, 1, lastRow - 1, 3).getValues();
+  const locations = locVals
+    .filter(function (r) { return r[0]; })
+    .map(function (r) {
+      return { name: String(r[0]), rent: Number(r[1]) || 0, note: String(r[2] || '') };
+    });
+
+  // Groups: columns E-I (5-9)
+  const grpVals = sh.getRange(2, 5, lastRow - 1, 5).getValues();
+  const groups = grpVals
+    .filter(function (r) { return r[0]; })
+    .map(function (r) {
+      return {
+        name: String(r[0]),
+        subject: String(r[1]),
+        rate: Number(r[2]) || 0,
+        teacherRoomFee: Number(r[3]) || 0,
+        note: String(r[4] || '')
+      };
+    });
+
+  return { locations: locations, groups: groups };
+}
+
+function getStudents() {
+  const data = getAllRows_(SHEET_NAMES.STUDENTS);
+  return data.rows.filter(function (r) { return r[0]; }).map(function (r) {
+    return {
+      code: String(r[0]),
+      name: String(r[1] || ''),
+      group: String(r[2] || ''),
+      studentPhone: String(r[3] || ''),
+      parentName: String(r[4] || ''),
+      parentPhone: String(r[5] || ''),
+      note: String(r[6] || '')
+    };
+  });
+}
+
+function getSessions(month) {
+  const sh = sheet_(SHEET_NAMES.SESSIONS);
+  const lastRow = sh.getLastRow();
+  if (lastRow < 2) return [];
+  const lastCol = Math.max(sh.getLastColumn(), SES_COL.CLIENT_KEY);
+  const values = sh.getRange(2, 1, lastRow - 1, lastCol).getValues();
+  const out = [];
+  for (let i = 0; i < values.length; i++) {
+    const r = values[i];
+    if (!r[SES_COL.GROUP - 1]) continue;
+    const dateEntered = fmtDate_(r[SES_COL.DATE_ENTERED - 1]);
+    const dateAttended = fmtDate_(r[SES_COL.DATE_ATTENDED - 1]);
+    if (month) {
+      const refDate = dateAttended || dateEntered;
+      if (refDate.slice(0, 7) !== month) continue;
+    }
+    out.push({
+      rowIndex: i + 2,
+      dateEntered: dateEntered,
+      group: r[SES_COL.GROUP - 1],
+      location: r[SES_COL.LOCATION - 1],
+      status: r[SES_COL.STATUS - 1],
+      rentTotal: Number(r[SES_COL.RENT_TOTAL - 1]) || 0,
+      rentTeacher: Number(r[SES_COL.RENT_TEACHER - 1]) || 0,
+      rentPerStudent: Number(r[SES_COL.RENT_PER_STUDENT - 1]) || 0,
+      ratePerHour: Number(r[SES_COL.RATE_PER_HOUR - 1]) || 0,
+      plan: r[SES_COL.PLAN - 1],
+      attended: r[SES_COL.ATTENDED - 1],
+      dateAttended: dateAttended,
+      timeStart: fmtTime_(r[SES_COL.TIME_START - 1]),
+      timeEnd: fmtTime_(r[SES_COL.TIME_END - 1]),
+      hours: Number(r[SES_COL.HOURS - 1]) || 0,
+      planCount: Number(r[SES_COL.PLAN_COUNT - 1]) || 0,
+      attendCount: Number(r[SES_COL.ATTEND_COUNT - 1]) || 0,
+      planRevenue: Number(r[SES_COL.PLAN_REVENUE - 1]) || 0,
+      revenue: Number(r[SES_COL.REVENUE - 1]) || 0,
+      revenueAfterRoom: Number(r[SES_COL.REVENUE_AFTER_ROOM - 1]) || 0,
+      settled: !!r[SES_COL.SETTLED - 1],
+      message: r[SES_COL.MESSAGE - 1],
+      clientKey: r[SES_COL.CLIENT_KEY - 1] || ''
+    });
+  }
+  return out;
+}
+
+function getSummary(month) {
+  const data = getAllRows_(SHEET_NAMES.SUMMARY);
+  return data.rows.filter(function (r) {
+    if (!r[0]) return false;
+    if (month && String(r[0]).indexOf(month) === -1 && r[0] !== month) {
+      // summary month is stored as Thai label; caller can filter client-side too
+    }
+    return true;
+  }).map(function (r) {
+    return {
+      month: r[0],
+      group: r[1],
+      planned: Number(r[2]) || 0,
+      taught: Number(r[3]) || 0,
+      cancelled: Number(r[4]) || 0,
+      studentsTotal: Number(r[5]) || 0,
+      revenue: Number(r[6]) || 0,
+      teacherRoomCost: Number(r[7]) || 0
+    };
+  });
+}
+
+function getPayments(studentFilter) {
+  const data = getAllRows_(SHEET_NAMES.PAYMENTS);
+  return data.rows
+    .filter(function (r) { return r[0]; })
+    .filter(function (r) { return !studentFilter || String(r[0]) === studentFilter; })
+    .map(function (r, idx) {
+      return {
+        rowIndex: idx + 2,
+        student: r[PAY_COL.STUDENT - 1],
+        group: r[PAY_COL.GROUP - 1],
+        dateAttended: fmtDate_(r[PAY_COL.DATE_ATTENDED - 1]),
+        location: r[PAY_COL.LOCATION - 1],
+        status: r[PAY_COL.STATUS - 1],
+        attended: r[PAY_COL.ATTENDED - 1],
+        hours: Number(r[PAY_COL.HOURS - 1]) || 0,
+        amountTeach: Number(r[PAY_COL.AMOUNT_TEACH - 1]) || 0,
+        amountRoom: Number(r[PAY_COL.AMOUNT_ROOM - 1]) || 0,
+        amountTotal: Number(r[PAY_COL.AMOUNT_TOTAL - 1]) || 0,
+        paid: !!r[PAY_COL.PAID - 1],
+        received: Number(r[PAY_COL.RECEIVED - 1]) || 0,
+        outstanding: Number(r[PAY_COL.OUTSTANDING - 1]) || 0,
+        note: r[PAY_COL.NOTE - 1],
+        followupMsg: r[PAY_COL.FOLLOWUP_MSG - 1]
+      };
+    });
+}
+
+// ============================================================================
+// Formula helpers (must match spec exactly)
+// ============================================================================
+
+function lookupLocationRent_(locationName) {
+  const cfg = getConfig();
+  const loc = cfg.locations.filter(function (l) { return l.name === locationName; })[0];
+  if (!loc) throw new Error('Unknown location: ' + locationName);
+  return loc.rent;
+}
+
+function lookupGroup_(groupName) {
+  const cfg = getConfig();
+  const grp = cfg.groups.filter(function (g) { return g.name === groupName; })[0];
+  if (!grp) throw new Error('Unknown group: ' + groupName);
+  return grp;
+}
+
+// E, F, G, H, O, P, Q, R, S per spec
+function computeRow_(fields) {
+  const rentTotal = lookupLocationRent_(fields.location);           // E
+  const grp = lookupGroup_(fields.group);
+  const rentTeacher = grp.teacherRoomFee;                            // F
+  const ratePerHour = grp.rate;                                      // H
+  const planCount = fields.planList.length;                          // O
+  const attendCount = fields.attendedList.length;                    // P
+  const rentPerStudent = attendCount > 0                              // G
+    ? Math.max(0, rentTotal - rentTeacher) / attendCount
+    : 0;
+  const hours = Number(fields.hours) || 0;                            // N
+  const planRevenue = hours * ratePerHour * planCount;                // Q
+  const revenue = hours * ratePerHour * attendCount;                  // R
+  const revenueAfterRoom = revenue - rentTeacher;                     // S
+
+  return {
+    rentTotal: rentTotal,
+    rentTeacher: rentTeacher,
+    rentPerStudent: rentPerStudent,
+    ratePerHour: ratePerHour,
+    planCount: planCount,
+    attendCount: attendCount,
+    planRevenue: planRevenue,
+    revenue: revenue,
+    revenueAfterRoom: revenueAfterRoom
+  };
+}
+
+// ============================================================================
+// POST actions
+// ============================================================================
+
+function ensureClientKeyColumn_(sh) {
+  const lastCol = sh.getLastColumn();
+  if (lastCol < SES_COL.CLIENT_KEY) {
+    sh.getRange(1, SES_COL.CLIENT_KEY).setValue('ClientKey');
+  }
+}
+
+function findRowByClientKey_(sh, clientKey) {
+  if (!clientKey) return -1;
+  const lastRow = sh.getLastRow();
+  if (lastRow < 2) return -1;
+  const keys = sh.getRange(2, SES_COL.CLIENT_KEY, lastRow - 1, 1).getValues();
+  for (let i = 0; i < keys.length; i++) {
+    if (keys[i][0] && String(keys[i][0]) === String(clientKey)) return i + 2;
+  }
+  return -1;
+}
+
+function rowToSessionObj_(sh, rowIndex) {
+  const lastCol = Math.max(sh.getLastColumn(), SES_COL.CLIENT_KEY);
+  const r = sh.getRange(rowIndex, 1, 1, lastCol).getValues()[0];
+  return {
+    rowIndex: rowIndex,
+    dateEntered: fmtDate_(r[SES_COL.DATE_ENTERED - 1]),
+    group: r[SES_COL.GROUP - 1],
+    location: r[SES_COL.LOCATION - 1],
+    status: r[SES_COL.STATUS - 1],
+    rentTotal: Number(r[SES_COL.RENT_TOTAL - 1]) || 0,
+    rentTeacher: Number(r[SES_COL.RENT_TEACHER - 1]) || 0,
+    rentPerStudent: Number(r[SES_COL.RENT_PER_STUDENT - 1]) || 0,
+    ratePerHour: Number(r[SES_COL.RATE_PER_HOUR - 1]) || 0,
+    plan: r[SES_COL.PLAN - 1],
+    attended: r[SES_COL.ATTENDED - 1],
+    dateAttended: fmtDate_(r[SES_COL.DATE_ATTENDED - 1]),
+    timeStart: fmtTime_(r[SES_COL.TIME_START - 1]),
+    timeEnd: fmtTime_(r[SES_COL.TIME_END - 1]),
+    hours: Number(r[SES_COL.HOURS - 1]) || 0,
+    planCount: Number(r[SES_COL.PLAN_COUNT - 1]) || 0,
+    attendCount: Number(r[SES_COL.ATTEND_COUNT - 1]) || 0,
+    planRevenue: Number(r[SES_COL.PLAN_REVENUE - 1]) || 0,
+    revenue: Number(r[SES_COL.REVENUE - 1]) || 0,
+    revenueAfterRoom: Number(r[SES_COL.REVENUE_AFTER_ROOM - 1]) || 0,
+    settled: !!r[SES_COL.SETTLED - 1],
+    message: r[SES_COL.MESSAGE - 1],
+    clientKey: r[SES_COL.CLIENT_KEY - 1] || ''
+  };
+}
+
+/**
+ * payload: { clientKey, group, location, status, date, planList, attendedList,
+ *            dateAttended, timeStart, timeEnd, hours, message }
+ */
+function addSession(payload) {
+  const sh = sheet_(SHEET_NAMES.SESSIONS);
+  ensureClientKeyColumn_(sh);
+
+  const existingRow = findRowByClientKey_(sh, payload.clientKey);
+  if (existingRow > 0) {
+    return rowToSessionObj_(sh, existingRow); // idempotent no-op
+  }
+
+  const planList = payload.planList || [];
+  const attendedList = payload.attendedList || [];
+  const computed = computeRow_({
+    location: payload.location,
+    group: payload.group,
+    hours: payload.hours,
+    planList: planList,
+    attendedList: attendedList
+  });
+
+  const rowIndex = sh.getLastRow() + 1;
+  const rowVals = new Array(SES_COL.CLIENT_KEY).fill('');
+  rowVals[SES_COL.DATE_ENTERED - 1] = payload.date || fmtDate_(new Date());
+  rowVals[SES_COL.GROUP - 1] = payload.group;
+  rowVals[SES_COL.LOCATION - 1] = payload.location;
+  rowVals[SES_COL.STATUS - 1] = payload.status;
+  rowVals[SES_COL.RENT_TOTAL - 1] = computed.rentTotal;
+  rowVals[SES_COL.RENT_TEACHER - 1] = computed.rentTeacher;
+  rowVals[SES_COL.RENT_PER_STUDENT - 1] = computed.rentPerStudent;
+  rowVals[SES_COL.RATE_PER_HOUR - 1] = computed.ratePerHour;
+  rowVals[SES_COL.PLAN - 1] = planList.join(', ');
+  rowVals[SES_COL.ATTENDED - 1] = attendedList.join(', ');
+  rowVals[SES_COL.DATE_ATTENDED - 1] = payload.dateAttended || (payload.status === STATUS.TAUGHT ? (payload.date || fmtDate_(new Date())) : '');
+  rowVals[SES_COL.TIME_START - 1] = payload.timeStart || '';
+  rowVals[SES_COL.TIME_END - 1] = payload.timeEnd || '';
+  rowVals[SES_COL.HOURS - 1] = payload.hours;
+  rowVals[SES_COL.PLAN_COUNT - 1] = computed.planCount;
+  rowVals[SES_COL.ATTEND_COUNT - 1] = computed.attendCount;
+  rowVals[SES_COL.PLAN_REVENUE - 1] = computed.planRevenue;
+  rowVals[SES_COL.REVENUE - 1] = computed.revenue;
+  rowVals[SES_COL.REVENUE_AFTER_ROOM - 1] = computed.revenueAfterRoom;
+  rowVals[SES_COL.SETTLED - 1] = false;
+  rowVals[SES_COL.MESSAGE - 1] = payload.message || '';
+  rowVals[SES_COL.CLIENT_KEY - 1] = payload.clientKey || '';
+
+  sh.getRange(rowIndex, 1, 1, rowVals.length).setValues([rowVals]);
+  return rowToSessionObj_(sh, rowIndex);
+}
+
+/**
+ * payload: { clientKey, group, location, date (optional), attendedList, rowIndex (optional, target existing plan row) }
+ * If rowIndex not given, resolves nearest pending 📅 แผน row for group+location (caller should already have
+ * resolved this client-side via getSessions, but we defensively resolve here too if rowIndex missing).
+ */
+function checkIn(payload) {
+  const sh = sheet_(SHEET_NAMES.SESSIONS);
+  ensureClientKeyColumn_(sh);
+
+  const existingRow = findRowByClientKey_(sh, payload.clientKey);
+  if (existingRow > 0) {
+    return rowToSessionObj_(sh, existingRow); // idempotent no-op
+  }
+
+  let targetRow = payload.rowIndex;
+  if (!targetRow) {
+    targetRow = findNearestPendingPlanRow_(sh, payload.group, payload.location, payload.date);
+  }
+  if (!targetRow) throw new Error('No pending plan found for ' + payload.group + ' / ' + payload.location);
+
+  const attendedList = payload.attendedList || [];
+  const existing = rowToSessionObj_(sh, targetRow);
+  const planList = parseNames_(existing.plan);
+  const hours = existing.hours;
+
+  const computed = computeRow_({
+    location: existing.location,
+    group: existing.group,
+    hours: hours,
+    planList: planList,
+    attendedList: attendedList
+  });
+
+  const dateAttended = payload.dateAttended || fmtDate_(new Date());
+
+  sh.getRange(targetRow, SES_COL.STATUS).setValue(STATUS.TAUGHT);
+  sh.getRange(targetRow, SES_COL.ATTENDED).setValue(attendedList.join(', '));
+  sh.getRange(targetRow, SES_COL.DATE_ATTENDED).setValue(dateAttended);
+  sh.getRange(targetRow, SES_COL.RENT_PER_STUDENT).setValue(computed.rentPerStudent);
+  sh.getRange(targetRow, SES_COL.ATTEND_COUNT).setValue(computed.attendCount);
+  sh.getRange(targetRow, SES_COL.REVENUE).setValue(computed.revenue);
+  sh.getRange(targetRow, SES_COL.REVENUE_AFTER_ROOM).setValue(computed.revenueAfterRoom);
+  sh.getRange(targetRow, SES_COL.CLIENT_KEY).setValue(payload.clientKey || existing.clientKey || '');
+
+  return rowToSessionObj_(sh, targetRow);
+}
+
+function findNearestPendingPlanRow_(sh, group, location, date) {
+  const lastRow = sh.getLastRow();
+  if (lastRow < 2) return null;
+  const values = sh.getRange(2, 1, lastRow - 1, SES_COL.CLIENT_KEY).getValues();
+  let candidates = [];
+  for (let i = 0; i < values.length; i++) {
+    const r = values[i];
+    if (r[SES_COL.GROUP - 1] === group && r[SES_COL.LOCATION - 1] === location && r[SES_COL.STATUS - 1] === STATUS.PLAN) {
+      candidates.push({ rowIndex: i + 2, date: fmtDate_(r[SES_COL.DATE_ENTERED - 1]) });
+    }
+  }
+  if (candidates.length === 0) return null;
+  if (date) {
+    const match = candidates.filter(function (c) { return c.date === date; });
+    if (match.length >= 1) return match[0].rowIndex;
+  }
+  // nearest by date proximity to today
+  const today = new Date();
+  candidates.sort(function (a, b) {
+    return Math.abs(new Date(a.date) - today) - Math.abs(new Date(b.date) - today);
+  });
+  return candidates[0].rowIndex;
+}
+
+/** payload: { group, location, date } - finds matching row, sets status cancelled */
+function cancelSession(payload) {
+  const sh = sheet_(SHEET_NAMES.SESSIONS);
+  const lastRow = sh.getLastRow();
+  if (lastRow < 2) throw new Error('no matching session found');
+  const values = sh.getRange(2, 1, lastRow - 1, SES_COL.CLIENT_KEY).getValues();
+  for (let i = 0; i < values.length; i++) {
+    const r = values[i];
+    const rowDate = fmtDate_(r[SES_COL.DATE_ENTERED - 1]);
+    if (r[SES_COL.GROUP - 1] === payload.group && r[SES_COL.LOCATION - 1] === payload.location && rowDate === payload.date) {
+      const rowIndex = i + 2;
+      sh.getRange(rowIndex, SES_COL.STATUS).setValue(STATUS.CANCELLED);
+      return rowToSessionObj_(sh, rowIndex);
+    }
+  }
+  throw new Error('no matching session found');
+}
+
+/** payload: { rowIndex, ...fields to update } - recomputes formulas */
+function updateSession(payload) {
+  const sh = sheet_(SHEET_NAMES.SESSIONS);
+  const rowIndex = payload.rowIndex;
+  if (!rowIndex) throw new Error('rowIndex required');
+  const existing = rowToSessionObj_(sh, rowIndex);
+
+  const group = payload.group || existing.group;
+  const location = payload.location || existing.location;
+  const hours = payload.hours != null ? payload.hours : existing.hours;
+  const planList = payload.planList || parseNames_(existing.plan);
+  const attendedList = payload.attendedList || parseNames_(existing.attended);
+  const status = payload.status || existing.status;
+
+  const computed = computeRow_({ location: location, group: group, hours: hours, planList: planList, attendedList: attendedList });
+
+  sh.getRange(rowIndex, SES_COL.GROUP).setValue(group);
+  sh.getRange(rowIndex, SES_COL.LOCATION).setValue(location);
+  sh.getRange(rowIndex, SES_COL.STATUS).setValue(status);
+  sh.getRange(rowIndex, SES_COL.RENT_TOTAL).setValue(computed.rentTotal);
+  sh.getRange(rowIndex, SES_COL.RENT_TEACHER).setValue(computed.rentTeacher);
+  sh.getRange(rowIndex, SES_COL.RENT_PER_STUDENT).setValue(computed.rentPerStudent);
+  sh.getRange(rowIndex, SES_COL.RATE_PER_HOUR).setValue(computed.ratePerHour);
+  sh.getRange(rowIndex, SES_COL.PLAN).setValue(planList.join(', '));
+  sh.getRange(rowIndex, SES_COL.ATTENDED).setValue(attendedList.join(', '));
+  if (payload.dateAttended) sh.getRange(rowIndex, SES_COL.DATE_ATTENDED).setValue(payload.dateAttended);
+  if (payload.timeStart) sh.getRange(rowIndex, SES_COL.TIME_START).setValue(payload.timeStart);
+  if (payload.timeEnd) sh.getRange(rowIndex, SES_COL.TIME_END).setValue(payload.timeEnd);
+  sh.getRange(rowIndex, SES_COL.HOURS).setValue(hours);
+  sh.getRange(rowIndex, SES_COL.PLAN_COUNT).setValue(computed.planCount);
+  sh.getRange(rowIndex, SES_COL.ATTEND_COUNT).setValue(computed.attendCount);
+  sh.getRange(rowIndex, SES_COL.PLAN_REVENUE).setValue(computed.planRevenue);
+  sh.getRange(rowIndex, SES_COL.REVENUE).setValue(computed.revenue);
+  sh.getRange(rowIndex, SES_COL.REVENUE_AFTER_ROOM).setValue(computed.revenueAfterRoom);
+  if (payload.message != null) sh.getRange(rowIndex, SES_COL.MESSAGE).setValue(payload.message);
+
+  return rowToSessionObj_(sh, rowIndex);
+}
+
+/** payload: { rowIndex } - used for "Undo last" in History screen */
+function deleteSession(payload) {
+  const sh = sheet_(SHEET_NAMES.SESSIONS);
+  const rowIndex = payload.rowIndex;
+  if (!rowIndex) throw new Error('rowIndex required');
+  sh.deleteRow(rowIndex);
+  return { deleted: true, rowIndex: rowIndex };
+}
+
+/** payload: { rowIndex (in รายละเอียดรายนักเรียน), paid, received, note } */
+function recordPayment(payload) {
+  const sh = sheet_(SHEET_NAMES.PAYMENTS);
+  const rowIndex = payload.rowIndex;
+  if (!rowIndex) throw new Error('rowIndex required');
+
+  const amountTotal = Number(sh.getRange(rowIndex, PAY_COL.AMOUNT_TOTAL).getValue()) || 0;
+  const received = Number(payload.received) || 0;
+  const outstanding = amountTotal - received;
+
+  sh.getRange(rowIndex, PAY_COL.PAID).setValue(!!payload.paid);
+  sh.getRange(rowIndex, PAY_COL.RECEIVED).setValue(received);
+  sh.getRange(rowIndex, PAY_COL.OUTSTANDING).setValue(outstanding);
+  if (payload.note != null) sh.getRange(rowIndex, PAY_COL.NOTE).setValue(payload.note);
+
+  return {
+    rowIndex: rowIndex,
+    paid: !!payload.paid,
+    received: received,
+    outstanding: outstanding
+  };
+}
+
+/**
+ * ============================================================================
+ * DEPLOY INSTRUCTIONS
+ * ============================================================================
+ * 1. Open (or upload+convert) your Google Sheet "ติดตามเรียนพิเศษ_v3" in Google
+ *    Sheets, with the 5 tabs named exactly: ตั้งค่า, นักเรียน, บันทึกการสอน,
+ *    รายละเอียดรายนักเรียน, สรุปรายเดือน.
+ * 2. In the Sheet, go to Extensions > Apps Script.
+ * 3. Delete any boilerplate code and paste this entire Code.gs file in.
+ * 4. At the top of this file, set SHEET_ID to your Sheet's ID (the long string
+ *    between /d/ and /edit in the Sheet's URL).
+ * 5. In the Apps Script editor, go to Project Settings (gear icon) > Script
+ *    Properties > Add script property. Key: TUTOR_APP_TOKEN, Value: a long
+ *    random secret string you generate yourself (e.g. from a password
+ *    generator). This is the shared secret the PWA must send with every
+ *    request.
+ * 6. Click Deploy > New deployment. Select type "Web app". Set "Execute as":
+ *    Me. Set "Who has access": Anyone with the link. Click Deploy.
+ * 7. Copy the Web app URL shown — this is your GAS_URL for index.html's
+ *    CONFIG object. Copy the same TUTOR_APP_TOKEN value into CONFIG.TOKEN.
+ * 8. Every time you edit this Code.gs file, you must create a NEW deployment
+ *    version (Deploy > Manage deployments > Edit > New version) for changes
+ *    to take effect on the existing URL.
+ * ============================================================================
+ */
