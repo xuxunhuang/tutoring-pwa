@@ -24,6 +24,17 @@ const SHEET_NAMES = {
   SUMMARY: 'สรุปรายเดือน'
 };
 
+// Row layout differs per tab (title row, and for some tabs a section-label
+// row, before the actual column-header row). *_HEADER_ROW is where the
+// column header text lives; *_DATA_ROW is the first row of real data.
+const ROWS = {
+  SETTINGS_HEADER_ROW: 2, SETTINGS_DATA_ROW: 3,   // title(1), headers(2), data(3+)
+  STUDENTS_HEADER_ROW: 2, STUDENTS_DATA_ROW: 3,    // title(1), headers(2), data(3+)
+  SESSIONS_HEADER_ROW: 3, SESSIONS_DATA_ROW: 4,    // title(1), section labels(2), headers(3), data(4+)
+  PAYMENTS_HEADER_ROW: 2, PAYMENTS_DATA_ROW: 3,    // title(1), headers(2), data(3+)
+  SUMMARY_HEADER_ROW: 2, SUMMARY_DATA_ROW: 3       // title(1), headers(2), data(3+)
+};
+
 // บันทึกการสอน column indices (1-based, matches spec A-V)
 const SES_COL = {
   DATE_ENTERED: 1,        // A วันที่บันทึกข้อมูล
@@ -171,13 +182,13 @@ function sheet_(name) {
   return sh;
 }
 
-function getAllRows_(sheetName) {
+function getAllRows_(sheetName, headerRow, dataRow) {
   const sh = sheet_(sheetName);
   const lastRow = sh.getLastRow();
   const lastCol = sh.getLastColumn();
-  if (lastRow < 2) return { header: [], rows: [] };
+  if (lastRow < dataRow) return { header: [], rows: [] };
   const values = sh.getRange(1, 1, lastRow, lastCol).getValues();
-  return { header: values[0], rows: values.slice(1) };
+  return { header: values[headerRow - 1], rows: values.slice(dataRow - 1) };
 }
 
 function fmtDate_(d) {
@@ -204,10 +215,11 @@ function parseNames_(str) {
 function getConfig() {
   const sh = sheet_(SHEET_NAMES.SETTINGS);
   const lastRow = sh.getLastRow();
-  if (lastRow < 2) return { locations: [], groups: [], bank: {} };
+  if (lastRow < ROWS.SETTINGS_DATA_ROW) return { locations: [], groups: [], bank: {} };
+  const numRows = lastRow - ROWS.SETTINGS_DATA_ROW + 1;
 
   // Locations: columns A-C (1-3)
-  const locVals = sh.getRange(2, 1, lastRow - 1, 3).getValues();
+  const locVals = sh.getRange(ROWS.SETTINGS_DATA_ROW, 1, numRows, 3).getValues();
   const locations = locVals
     .filter(function (r) { return r[0]; })
     .map(function (r) {
@@ -215,7 +227,7 @@ function getConfig() {
     });
 
   // Groups: columns E-I (5-9)
-  const grpVals = sh.getRange(2, 5, lastRow - 1, 5).getValues();
+  const grpVals = sh.getRange(ROWS.SETTINGS_DATA_ROW, 5, numRows, 5).getValues();
   const groups = grpVals
     .filter(function (r) { return r[0]; })
     .map(function (r) {
@@ -232,7 +244,7 @@ function getConfig() {
 }
 
 function getStudents() {
-  const data = getAllRows_(SHEET_NAMES.STUDENTS);
+  const data = getAllRows_(SHEET_NAMES.STUDENTS, ROWS.STUDENTS_HEADER_ROW, ROWS.STUDENTS_DATA_ROW);
   return data.rows.filter(function (r) { return r[0]; }).map(function (r) {
     return {
       code: String(r[0]),
@@ -249,9 +261,9 @@ function getStudents() {
 function getSessions(month) {
   const sh = sheet_(SHEET_NAMES.SESSIONS);
   const lastRow = sh.getLastRow();
-  if (lastRow < 2) return [];
+  if (lastRow < ROWS.SESSIONS_DATA_ROW) return [];
   const lastCol = Math.max(sh.getLastColumn(), SES_COL.CLIENT_KEY);
-  const values = sh.getRange(2, 1, lastRow - 1, lastCol).getValues();
+  const values = sh.getRange(ROWS.SESSIONS_DATA_ROW, 1, lastRow - ROWS.SESSIONS_DATA_ROW + 1, lastCol).getValues();
   const out = [];
   for (let i = 0; i < values.length; i++) {
     const r = values[i];
@@ -263,7 +275,7 @@ function getSessions(month) {
       if (refDate.slice(0, 7) !== month) continue;
     }
     out.push({
-      rowIndex: i + 2,
+      rowIndex: i + ROWS.SESSIONS_DATA_ROW,
       dateEntered: dateEntered,
       group: r[SES_COL.GROUP - 1],
       location: r[SES_COL.LOCATION - 1],
@@ -292,7 +304,7 @@ function getSessions(month) {
 }
 
 function getSummary(month) {
-  const data = getAllRows_(SHEET_NAMES.SUMMARY);
+  const data = getAllRows_(SHEET_NAMES.SUMMARY, ROWS.SUMMARY_HEADER_ROW, ROWS.SUMMARY_DATA_ROW);
   return data.rows.filter(function (r) {
     if (!r[0]) return false;
     if (month && String(r[0]).indexOf(month) === -1 && r[0] !== month) {
@@ -314,13 +326,15 @@ function getSummary(month) {
 }
 
 function getPayments(studentFilter) {
-  const data = getAllRows_(SHEET_NAMES.PAYMENTS);
+  const data = getAllRows_(SHEET_NAMES.PAYMENTS, ROWS.PAYMENTS_HEADER_ROW, ROWS.PAYMENTS_DATA_ROW);
   return data.rows
-    .filter(function (r) { return r[0]; })
-    .filter(function (r) { return !studentFilter || String(r[0]) === studentFilter; })
-    .map(function (r, idx) {
+    .map(function (r, idx) { return { r: r, rowIndex: idx + ROWS.PAYMENTS_DATA_ROW }; })
+    .filter(function (x) { return x.r[0]; })
+    .filter(function (x) { return !studentFilter || String(x.r[0]) === studentFilter; })
+    .map(function (x) {
+      const r = x.r;
       return {
-        rowIndex: idx + 2,
+        rowIndex: x.rowIndex,
         student: r[PAY_COL.STUDENT - 1],
         group: r[PAY_COL.GROUP - 1],
         dateAttended: fmtDate_(r[PAY_COL.DATE_ATTENDED - 1]),
@@ -399,7 +413,7 @@ function computeRow_(fields) {
 function ensurePaySessionRefColumn_(sh) {
   const lastCol = sh.getLastColumn();
   if (lastCol < PAY_COL.SESSION_REF) {
-    sh.getRange(1, PAY_COL.SESSION_REF).setValue('SessionRef');
+    sh.getRange(ROWS.PAYMENTS_HEADER_ROW, PAY_COL.SESSION_REF).setValue('SessionRef');
   }
 }
 
@@ -416,8 +430,8 @@ function syncPaymentRows_(sessionRowIndex) {
   ensurePaySessionRefColumn_(paySh);
 
   const lastRow = paySh.getLastRow();
-  const existingRefs = lastRow >= 2
-    ? paySh.getRange(2, PAY_COL.SESSION_REF, lastRow - 1, 1).getValues().map(function (r) { return r[0]; })
+  const existingRefs = lastRow >= ROWS.PAYMENTS_DATA_ROW
+    ? paySh.getRange(ROWS.PAYMENTS_DATA_ROW, PAY_COL.SESSION_REF, lastRow - ROWS.PAYMENTS_DATA_ROW + 1, 1).getValues().map(function (r) { return r[0]; })
     : [];
 
   const amountTeach = session.hours * session.ratePerHour;
@@ -457,17 +471,17 @@ function syncPaymentRows_(sessionRowIndex) {
 function ensureClientKeyColumn_(sh) {
   const lastCol = sh.getLastColumn();
   if (lastCol < SES_COL.CLIENT_KEY) {
-    sh.getRange(1, SES_COL.CLIENT_KEY).setValue('ClientKey');
+    sh.getRange(ROWS.SESSIONS_HEADER_ROW, SES_COL.CLIENT_KEY).setValue('ClientKey');
   }
 }
 
 function findRowByClientKey_(sh, clientKey) {
   if (!clientKey) return -1;
   const lastRow = sh.getLastRow();
-  if (lastRow < 2) return -1;
-  const keys = sh.getRange(2, SES_COL.CLIENT_KEY, lastRow - 1, 1).getValues();
+  if (lastRow < ROWS.SESSIONS_DATA_ROW) return -1;
+  const keys = sh.getRange(ROWS.SESSIONS_DATA_ROW, SES_COL.CLIENT_KEY, lastRow - ROWS.SESSIONS_DATA_ROW + 1, 1).getValues();
   for (let i = 0; i < keys.length; i++) {
-    if (keys[i][0] && String(keys[i][0]) === String(clientKey)) return i + 2;
+    if (keys[i][0] && String(keys[i][0]) === String(clientKey)) return i + ROWS.SESSIONS_DATA_ROW;
   }
   return -1;
 }
@@ -605,13 +619,13 @@ function checkIn(payload) {
 
 function findNearestPendingPlanRow_(sh, group, location, date) {
   const lastRow = sh.getLastRow();
-  if (lastRow < 2) return null;
-  const values = sh.getRange(2, 1, lastRow - 1, SES_COL.CLIENT_KEY).getValues();
+  if (lastRow < ROWS.SESSIONS_DATA_ROW) return null;
+  const values = sh.getRange(ROWS.SESSIONS_DATA_ROW, 1, lastRow - ROWS.SESSIONS_DATA_ROW + 1, SES_COL.CLIENT_KEY).getValues();
   let candidates = [];
   for (let i = 0; i < values.length; i++) {
     const r = values[i];
     if (r[SES_COL.GROUP - 1] === group && r[SES_COL.LOCATION - 1] === location && r[SES_COL.STATUS - 1] === STATUS.PLAN) {
-      candidates.push({ rowIndex: i + 2, date: fmtDate_(r[SES_COL.DATE_ENTERED - 1]) });
+      candidates.push({ rowIndex: i + ROWS.SESSIONS_DATA_ROW, date: fmtDate_(r[SES_COL.DATE_ENTERED - 1]) });
     }
   }
   if (candidates.length === 0) return null;
@@ -631,13 +645,13 @@ function findNearestPendingPlanRow_(sh, group, location, date) {
 function cancelSession(payload) {
   const sh = sheet_(SHEET_NAMES.SESSIONS);
   const lastRow = sh.getLastRow();
-  if (lastRow < 2) throw new Error('no matching session found');
-  const values = sh.getRange(2, 1, lastRow - 1, SES_COL.CLIENT_KEY).getValues();
+  if (lastRow < ROWS.SESSIONS_DATA_ROW) throw new Error('no matching session found');
+  const values = sh.getRange(ROWS.SESSIONS_DATA_ROW, 1, lastRow - ROWS.SESSIONS_DATA_ROW + 1, SES_COL.CLIENT_KEY).getValues();
   for (let i = 0; i < values.length; i++) {
     const r = values[i];
     const rowDate = fmtDate_(r[SES_COL.DATE_ENTERED - 1]);
     if (r[SES_COL.GROUP - 1] === payload.group && r[SES_COL.LOCATION - 1] === payload.location && rowDate === payload.date) {
-      const rowIndex = i + 2;
+      const rowIndex = i + ROWS.SESSIONS_DATA_ROW;
       sh.getRange(rowIndex, SES_COL.STATUS).setValue(STATUS.CANCELLED);
       return rowToSessionObj_(sh, rowIndex);
     }
