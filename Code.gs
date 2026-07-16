@@ -168,6 +168,15 @@ function doPost(e) {
       case 'updateStudent':
         result = updateStudent(payload);
         break;
+      case 'deleteLocation':
+        result = deleteLocation(payload);
+        break;
+      case 'deleteGroup':
+        result = deleteGroup(payload);
+        break;
+      case 'deleteStudent':
+        result = deleteStudent(payload);
+        break;
       default:
         return jsonOutput({ ok: false, error: 'unknown action' });
     }
@@ -865,22 +874,70 @@ function addStudent(payload) {
   return { code: code, name: payload.name };
 }
 
+function findStudentRowByName_(sh, name) {
+  const lastRow = sh.getLastRow();
+  if (lastRow < ROWS.STUDENTS_DATA_ROW) return -1;
+  const names = sh.getRange(ROWS.STUDENTS_DATA_ROW, 2, lastRow - ROWS.STUDENTS_DATA_ROW + 1, 1).getValues();
+  for (let i = 0; i < names.length; i++) {
+    if (String(names[i][0]) === String(name)) return ROWS.STUDENTS_DATA_ROW + i;
+  }
+  return -1;
+}
+
 /** payload: { originalName, name, group, studentPhone, parentName, parentPhone, note } */
 function updateStudent(payload) {
   const sh = sheet_(SHEET_NAMES.STUDENTS);
-  const lastRow = sh.getLastRow();
-  if (lastRow < ROWS.STUDENTS_DATA_ROW) throw new Error('ไม่พบนักเรียน: ' + payload.originalName);
-  const names = sh.getRange(ROWS.STUDENTS_DATA_ROW, 2, lastRow - ROWS.STUDENTS_DATA_ROW + 1, 1).getValues();
-  let rowIndex = -1;
-  for (let i = 0; i < names.length; i++) {
-    if (String(names[i][0]) === String(payload.originalName)) { rowIndex = ROWS.STUDENTS_DATA_ROW + i; break; }
-  }
+  const rowIndex = findStudentRowByName_(sh, payload.originalName);
   if (rowIndex < 0) throw new Error('ไม่พบนักเรียน: ' + payload.originalName);
   sh.getRange(rowIndex, 2, 1, 6).setValues([[
     payload.name, payload.group || '', payload.studentPhone || '',
     payload.parentName || '', payload.parentPhone || '', payload.note || ''
   ]]);
   return { name: payload.name };
+}
+
+// Deletes one row's worth of data within a single column range only, shifting
+// everything below it up. Plain sh.deleteRow() would be WRONG for ตั้งค่า:
+// locations (A-D) and groups (E-J) are two independent tables sharing the
+// same physical rows, so deleting a whole row would silently corrupt
+// whichever table wasn't being edited.
+function deleteRowInColumnRange_(sh, startCol, numCols, targetRow) {
+  const lastRow = sh.getLastRow();
+  if (targetRow < ROWS.SETTINGS_DATA_ROW || targetRow > lastRow) return;
+  if (targetRow < lastRow) {
+    const below = sh.getRange(targetRow + 1, startCol, lastRow - targetRow, numCols).getValues();
+    sh.getRange(targetRow, startCol, lastRow - targetRow, numCols).setValues(below);
+  }
+  sh.getRange(lastRow, startCol, 1, numCols).clearContent();
+}
+
+/** payload: { name } — existing sessions/payments keep the name as plain
+ * historical text (see buildFollowupMessage's rate note in index.html), so
+ * this is safe even if old records reference the deleted name. */
+function deleteLocation(payload) {
+  const sh = sheet_(SHEET_NAMES.SETTINGS);
+  const rowIndex = findSettingsRowByName_(sh, 1, payload.name);
+  if (rowIndex < 0) throw new Error('ไม่พบสถานที่: ' + payload.name);
+  deleteRowInColumnRange_(sh, 1, 4, rowIndex);
+  return { deleted: true, name: payload.name };
+}
+
+/** payload: { name } */
+function deleteGroup(payload) {
+  const sh = sheet_(SHEET_NAMES.SETTINGS);
+  const rowIndex = findSettingsRowByName_(sh, 5, payload.name);
+  if (rowIndex < 0) throw new Error('ไม่พบกลุ่ม: ' + payload.name);
+  deleteRowInColumnRange_(sh, 5, 6, rowIndex);
+  return { deleted: true, name: payload.name };
+}
+
+/** payload: { name } */
+function deleteStudent(payload) {
+  const sh = sheet_(SHEET_NAMES.STUDENTS);
+  const rowIndex = findStudentRowByName_(sh, payload.name);
+  if (rowIndex < 0) throw new Error('ไม่พบนักเรียน: ' + payload.name);
+  sh.deleteRow(rowIndex); // นักเรียน is a single table — plain deleteRow is safe here
+  return { deleted: true, name: payload.name };
 }
 
 /**

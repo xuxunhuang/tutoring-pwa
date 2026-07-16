@@ -340,8 +340,9 @@ input.field-input{
 .settings-row .info .sub{font-size:12px;color:var(--text-muted);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .settings-row .edit-btn{
   background:var(--surface-2);border:none;border-radius:var(--r-pill);min-width:36px;min-height:36px;
-  font-size:16px;cursor:pointer;flex-shrink:0;
+  font-size:16px;cursor:pointer;flex-shrink:0;margin-left:8px;
 }
+.settings-row .edit-btn-delete{background:var(--danger-dim,#FEF2F2);margin-left:0;}
 </style>
 </head>
 <body>
@@ -1649,7 +1650,7 @@ function renderSummary() {
 /* ============================================================================
  * PAYMENTS screen
  * ============================================================================ */
-function buildFollowupMessage(studentName, group, unpaidSessions, rate) {
+function buildFollowupMessage(studentName, group, unpaidSessions) {
   let lines = [];
   lines.push('ขอสรุปค่าเรียนนะคะ 🙏');
   lines.push('👤 ' + studentName + ' (' + group + ')');
@@ -1664,6 +1665,9 @@ function buildFollowupMessage(studentName, group, unpaidSessions, rate) {
   const totalTeachingFee = unpaidSessions.reduce(function (a, s) { return a + (s.amountTeach || 0); }, 0);
   const totalRoomFee = unpaidSessions.reduce(function (a, s) { return a + (s.amountRoom || 0); }, 0);
   const grandTotal = totalTeachingFee + totalRoomFee;
+  // Derived from the sessions' own stored amounts, not a live CONFIG lookup —
+  // stays correct even if the group's rate/name later changes or is deleted.
+  const rate = totalHours > 0 ? totalTeachingFee / totalHours : 0;
   lines.push('💰 ค่าเรียน ' + fmtMoney(rate) + ' บาท/ชม.');
   lines.push('⏱️ ทั้งหมด ' + fmtHours(totalHours) + ' ชั่วโมง');
   lines.push('   = ' + fmtMoney(totalTeachingFee) + ' บาท');
@@ -1712,8 +1716,7 @@ function renderPayments() {
       const name = btn.dataset.copy;
       const d = byStudent[name];
       const unpaid = d.rows.filter(function (r) { return !r.paid; });
-      const rate = findConfig(d.group, CONFIG.groups, 'name');
-      const msg = buildFollowupMessage(name, d.group, unpaid, rate ? rate.rate : 0);
+      const msg = buildFollowupMessage(name, d.group, unpaid);
       navigator.clipboard.writeText(msg).then(function () {
         toast('คัดลอกข้อความแล้ว');
       }).catch(function () {
@@ -1747,13 +1750,19 @@ function renderPayments() {
 const openSheetLink = document.getElementById('openSheetLink');
 if (openSheetLink) openSheetLink.href = CONFIG.SHEET_URL;
 
-function settingsRow(name, sub, onEdit) {
+function settingsRow(name, sub, onEdit, onDelete) {
   const row = document.createElement('div');
   row.className = 'settings-row';
-  row.innerHTML = '<div class="info"><div class="name"></div><div class="sub"></div></div><button type="button" class="edit-btn">✏️</button>';
+  row.innerHTML = '<div class="info"><div class="name"></div><div class="sub"></div></div>' +
+    '<button type="button" class="edit-btn edit-btn-delete">🗑️</button><button type="button" class="edit-btn">✏️</button>';
   row.querySelector('.name').textContent = name;
   row.querySelector('.sub').textContent = sub;
-  row.querySelector('.edit-btn').addEventListener('click', onEdit);
+  row.querySelector('.edit-btn:not(.edit-btn-delete)').addEventListener('click', onEdit);
+  row.querySelector('.edit-btn-delete').addEventListener('click', function () {
+    if (confirm('ลบ "' + name + '" ใช่หรือไม่?\nข้อมูลคาบเรียน/การเงินเก่าที่เคยใช้ชื่อนี้จะยังอยู่เหมือนเดิม แค่จะไม่ขึ้นให้เลือกอีกต่อไป')) {
+      onDelete();
+    }
+  });
   return row;
 }
 
@@ -1767,6 +1776,11 @@ function renderSettings() {
     CONFIG.locations.forEach(function (l) {
       locList.appendChild(settingsRow(l.name, '฿' + fmtMoney(l.rent) + '/ครั้ง' + (l.aliases.length ? ' · ' + l.aliases.join(', ') : ''), function () {
         openLocationForm(l);
+      }, function () {
+        apiPost('deleteLocation', { name: l.name }).then(function (res) {
+          if (res.ok) { toast('ลบแล้ว'); refreshConfig().then(renderSettings); }
+          else toast('เกิดข้อผิดพลาด: ' + (res.error || 'unknown'));
+        }).catch(function () { toast('ส่งไม่สำเร็จ ลองใหม่เมื่อออนไลน์'); });
       }));
     });
   }
@@ -1780,6 +1794,11 @@ function renderSettings() {
     CONFIG.groups.forEach(function (g) {
       grpList.appendChild(settingsRow(g.name + ' — ' + g.subject, '฿' + fmtMoney(g.rate) + '/ชม.' + (g.aliases.length ? ' · ' + g.aliases.join(', ') : ''), function () {
         openGroupForm(g);
+      }, function () {
+        apiPost('deleteGroup', { name: g.name }).then(function (res) {
+          if (res.ok) { toast('ลบแล้ว'); refreshConfig().then(renderSettings); }
+          else toast('เกิดข้อผิดพลาด: ' + (res.error || 'unknown'));
+        }).catch(function () { toast('ส่งไม่สำเร็จ ลองใหม่เมื่อออนไลน์'); });
       }));
     });
   }
@@ -1793,6 +1812,11 @@ function renderSettings() {
     CONFIG.students.forEach(function (s) {
       stuList.appendChild(settingsRow(s.name, s.group || '(ยังไม่มีกลุ่ม)', function () {
         openStudentForm(s);
+      }, function () {
+        apiPost('deleteStudent', { name: s.name }).then(function (res) {
+          if (res.ok) { toast('ลบแล้ว'); refreshConfig().then(renderSettings); }
+          else toast('เกิดข้อผิดพลาด: ' + (res.error || 'unknown'));
+        }).catch(function () { toast('ส่งไม่สำเร็จ ลองใหม่เมื่อออนไลน์'); });
       }));
     });
   }
