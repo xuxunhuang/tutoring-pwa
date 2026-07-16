@@ -124,6 +124,22 @@ function doGet(e) {
 }
 
 function doPost(e) {
+  // Every write (add/update/delete across sessions, payments, and the roster)
+  // reads current state (e.g. "first empty row", "does this name already
+  // exist") before writing. Apps Script Web Apps can run concurrent requests
+  // for the same script without serializing them automatically, so two
+  // overlapping writes can race on that read — confirmed empirically: two
+  // concurrent deleteLocation calls left one deletion silently lost. A
+  // single script-wide lock for the whole handler serializes all writes,
+  // which is the standard fix and is free at this app's volume (one tutor,
+  // occasional taps — never truly concurrent in practice, just not
+  // guaranteed serial by the platform itself).
+  const lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(10000);
+  } catch (lockErr) {
+    return jsonOutput({ ok: false, error: 'ระบบกำลังประมวลผลคำขออื่นอยู่ กรุณาลองใหม่อีกครั้ง' });
+  }
   try {
     const body = JSON.parse(e.postData.contents || '{}');
     if (!checkToken(body.token)) return jsonOutput({ ok: false, error: 'forbidden' });
@@ -183,6 +199,8 @@ function doPost(e) {
     return jsonOutput({ ok: true, data: result });
   } catch (err) {
     return jsonOutput({ ok: false, error: String(err && err.message || err) });
+  } finally {
+    lock.releaseLock();
   }
 }
 
