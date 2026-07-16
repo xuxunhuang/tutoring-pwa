@@ -319,6 +319,29 @@ input.field-input{
   width:100%;background:var(--surface);border:1px solid var(--surface-border);color:var(--text);
   border-radius:var(--r-control);padding:10px;font-family:var(--font-body);min-height:44px;font-size:15px;
 }
+.btn-sm{min-height:36px;padding:0 14px;font-size:13px;}
+.settings-section{margin-bottom:20px;}
+.settings-section-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;}
+.settings-section-head h3{margin:0;font-size:16px;font-weight:600;color:var(--text);}
+.settings-form{
+  background:var(--surface);border:1px solid var(--surface-border);border-radius:var(--r-card);
+  box-shadow:var(--shadow-card);padding:16px;margin-bottom:12px;
+}
+.settings-form-actions{display:flex;gap:10px;margin-top:14px;}
+.settings-form-actions .btn{flex:1;}
+.settings-list{display:flex;flex-direction:column;gap:8px;}
+.settings-row{
+  display:flex;justify-content:space-between;align-items:center;gap:10px;
+  background:var(--surface);border:1px solid var(--surface-border);border-radius:var(--r-control);
+  padding:10px 14px;box-shadow:var(--shadow-card);
+}
+.settings-row .info{min-width:0;}
+.settings-row .info .name{font-weight:600;color:var(--text);font-size:14px;}
+.settings-row .info .sub{font-size:12px;color:var(--text-muted);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.settings-row .edit-btn{
+  background:var(--surface-2);border:none;border-radius:var(--r-pill);min-width:36px;min-height:36px;
+  font-size:16px;cursor:pointer;flex-shrink:0;
+}
 </style>
 </head>
 <body>
@@ -421,12 +444,100 @@ input.field-input{
     <div id="paymentsList"></div>
   </section>
 
+  <!-- SCREEN 5: SETTINGS (in-app roster management — Sheet editing stays optional) -->
+  <section class="screen" id="screen-settings">
+    <h2 class="display" style="font-size:24px;margin:12px 0;">ตั้งค่า</h2>
+    <p class="inline-hint" style="margin:-8px 0 16px;">แก้ไขที่นี่ได้เลย ไม่ต้องเข้า Google Sheet (แต่จะเข้าไปแก้เองก็ได้)</p>
+
+    <div class="settings-section">
+      <div class="settings-section-head">
+        <h3>📍 สถานที่</h3>
+        <button class="btn btn-primary btn-sm" id="addLocationBtn">+ เพิ่ม</button>
+      </div>
+      <div id="locationForm" class="settings-form" style="display:none;">
+        <input type="hidden" id="locOriginalName">
+        <label class="field-label">ชื่อสถานที่</label>
+        <input type="text" id="locName" class="field-input" placeholder="เช่น Genius K.Joy">
+        <label class="field-label">ค่าเช่า/ครั้ง (บาท)</label>
+        <input type="number" id="locRent" class="field-input" placeholder="0" step="1" min="0">
+        <label class="field-label">คำย่อสำหรับพิมพ์คำสั่ง (คั่นด้วยจุลภาค)</label>
+        <input type="text" id="locAliases" class="field-input" placeholder="เช่น จอย, genius">
+        <label class="field-label">หมายเหตุ</label>
+        <input type="text" id="locNote" class="field-input" placeholder="ไม่บังคับ">
+        <div class="settings-form-actions">
+          <button class="btn btn-ghost" id="locCancelBtn">ยกเลิก</button>
+          <button class="btn btn-primary" id="locSaveBtn">บันทึก</button>
+        </div>
+      </div>
+      <div id="locationList" class="settings-list"></div>
+    </div>
+
+    <div class="settings-section">
+      <div class="settings-section-head">
+        <h3>👥 กลุ่มเรียน</h3>
+        <button class="btn btn-primary btn-sm" id="addGroupBtn">+ เพิ่ม</button>
+      </div>
+      <div id="groupForm" class="settings-form" style="display:none;">
+        <input type="hidden" id="grpOriginalName">
+        <label class="field-label">ชื่อกลุ่ม</label>
+        <input type="text" id="grpName" class="field-input" placeholder="เช่น กลุ่ม 1">
+        <label class="field-label">วิชา</label>
+        <input type="text" id="grpSubject" class="field-input" placeholder="เช่น คณิตศาสตร์">
+        <label class="field-label">ค่าสอน/คน/ชม. (บาท)</label>
+        <input type="number" id="grpRate" class="field-input" placeholder="0" step="1" min="0">
+        <label class="field-label">ครูออกค่าห้อง/ครั้ง (บาท)</label>
+        <input type="number" id="grpTeacherFee" class="field-input" placeholder="0" step="1" min="0">
+        <label class="field-label">คำย่อสำหรับพิมพ์คำสั่ง (คั่นด้วยจุลภาค)</label>
+        <input type="text" id="grpAliases" class="field-input" placeholder="เช่น g1, คณิต">
+        <label class="field-label">หมายเหตุ</label>
+        <input type="text" id="grpNote" class="field-input" placeholder="ไม่บังคับ">
+        <div class="settings-form-actions">
+          <button class="btn btn-ghost" id="grpCancelBtn">ยกเลิก</button>
+          <button class="btn btn-primary" id="grpSaveBtn">บันทึก</button>
+        </div>
+      </div>
+      <div id="groupList" class="settings-list"></div>
+    </div>
+
+    <div class="settings-section">
+      <div class="settings-section-head">
+        <h3>🧑‍🎓 นักเรียน</h3>
+        <button class="btn btn-primary btn-sm" id="addStudentBtn">+ เพิ่ม</button>
+      </div>
+      <div id="studentForm" class="settings-form" style="display:none;">
+        <input type="hidden" id="stuOriginalName">
+        <label class="field-label">ชื่อนักเรียน</label>
+        <input type="text" id="stuName" class="field-input" placeholder="เช่น Heng">
+        <label class="field-label">กลุ่ม</label>
+        <select id="stuGroup" class="field-select"></select>
+        <label class="field-label">เบอร์นักเรียน</label>
+        <input type="text" id="stuPhone" class="field-input" placeholder="ไม่บังคับ">
+        <label class="field-label">ชื่อผู้ปกครอง</label>
+        <input type="text" id="stuParentName" class="field-input" placeholder="ไม่บังคับ">
+        <label class="field-label">เบอร์ผู้ปกครอง</label>
+        <input type="text" id="stuParentPhone" class="field-input" placeholder="ไม่บังคับ">
+        <label class="field-label">หมายเหตุ</label>
+        <input type="text" id="stuNote" class="field-input" placeholder="ไม่บังคับ">
+        <div class="settings-form-actions">
+          <button class="btn btn-ghost" id="stuCancelBtn">ยกเลิก</button>
+          <button class="btn btn-primary" id="stuSaveBtn">บันทึก</button>
+        </div>
+      </div>
+      <div id="studentList" class="settings-list"></div>
+    </div>
+
+    <p class="inline-hint" style="margin:24px 0 12px;">
+      <a id="openSheetLink" href="#" target="_blank" rel="noopener">เปิด Google Sheet โดยตรง (ไม่บังคับ) →</a>
+    </p>
+  </section>
+
   <nav class="bottomnav">
     <div class="bottomnav-inner">
       <button class="navbtn active" data-screen="dispatch"><span class="ic">📝</span>Dispatch</button>
       <button class="navbtn" data-screen="history"><span class="ic">🕘</span>History</button>
       <button class="navbtn" data-screen="summary"><span class="ic">📊</span>Summary</button>
       <button class="navbtn" data-screen="payments"><span class="ic">💰</span>Payments</button>
+      <button class="navbtn" data-screen="settings"><span class="ic">⚙️</span>Settings</button>
     </div>
   </nav>
 </div>
@@ -447,6 +558,7 @@ input.field-input{
 const CONFIG = {
   GAS_URL: 'https://script.google.com/macros/s/AKfycbww_pMHc9oxQkYwK3fBwiXyLClx3rT7Iu-3W6fiBrbSrpRcmW6xaURY4kdGAeJqygJh/exec',
   TOKEN: 'E56ZgzIpMndJUhMeuqB8QLaqxJjGTNACQwXBPUKWGTs', // matches Script Property TUTOR_APP_TOKEN — visible in view-source once deployed, this is a deterrent not a real access boundary (see Code.gs deploy notes)
+  SHEET_URL: 'https://docs.google.com/spreadsheets/d/1mowV5UwjXCQBBNWTYVLXZ4vVf_jxaKAO-RAczQmHuDM/edit',
   TEACHER_NAME: '[ชื่อครู]',
   BANK_NAME: '[ชื่อธนาคาร]',
   ACCOUNT_NUMBER: '[เลขบัญชี]',
@@ -913,6 +1025,7 @@ function showScreen(name) {
   if (name === 'history') renderHistory();
   if (name === 'summary') renderSummary();
   if (name === 'payments') renderPayments();
+  if (name === 'settings') renderSettings();
 }
 document.querySelectorAll('.navbtn').forEach(function (b) {
   b.addEventListener('click', function () { showScreen(b.dataset.screen); });
@@ -1626,25 +1739,191 @@ function renderPayments() {
 }
 
 /* ============================================================================
+ * SETTINGS screen — in-app roster management (locations / groups / students),
+ * so the owner never has to open the Sheet directly. Editing the Sheet
+ * directly still works too (Code.gs reads it live either way) — this is
+ * just an additional, optional way in.
+ * ============================================================================ */
+const openSheetLink = document.getElementById('openSheetLink');
+if (openSheetLink) openSheetLink.href = CONFIG.SHEET_URL;
+
+function settingsRow(name, sub, onEdit) {
+  const row = document.createElement('div');
+  row.className = 'settings-row';
+  row.innerHTML = '<div class="info"><div class="name"></div><div class="sub"></div></div><button type="button" class="edit-btn">✏️</button>';
+  row.querySelector('.name').textContent = name;
+  row.querySelector('.sub').textContent = sub;
+  row.querySelector('.edit-btn').addEventListener('click', onEdit);
+  return row;
+}
+
+function renderSettings() {
+  // Locations
+  const locList = document.getElementById('locationList');
+  locList.innerHTML = '';
+  if (CONFIG.locations.length === 0) {
+    locList.innerHTML = '<div class="empty-state" style="padding:16px;">ยังไม่มีสถานที่</div>';
+  } else {
+    CONFIG.locations.forEach(function (l) {
+      locList.appendChild(settingsRow(l.name, '฿' + fmtMoney(l.rent) + '/ครั้ง' + (l.aliases.length ? ' · ' + l.aliases.join(', ') : ''), function () {
+        openLocationForm(l);
+      }));
+    });
+  }
+
+  // Groups
+  const grpList = document.getElementById('groupList');
+  grpList.innerHTML = '';
+  if (CONFIG.groups.length === 0) {
+    grpList.innerHTML = '<div class="empty-state" style="padding:16px;">ยังไม่มีกลุ่ม</div>';
+  } else {
+    CONFIG.groups.forEach(function (g) {
+      grpList.appendChild(settingsRow(g.name + ' — ' + g.subject, '฿' + fmtMoney(g.rate) + '/ชม.' + (g.aliases.length ? ' · ' + g.aliases.join(', ') : ''), function () {
+        openGroupForm(g);
+      }));
+    });
+  }
+
+  // Students
+  const stuList = document.getElementById('studentList');
+  stuList.innerHTML = '';
+  if (CONFIG.students.length === 0) {
+    stuList.innerHTML = '<div class="empty-state" style="padding:16px;">ยังไม่มีนักเรียน</div>';
+  } else {
+    CONFIG.students.forEach(function (s) {
+      stuList.appendChild(settingsRow(s.name, s.group || '(ยังไม่มีกลุ่ม)', function () {
+        openStudentForm(s);
+      }));
+    });
+  }
+
+  populateStudentGroupSelect();
+}
+
+function populateStudentGroupSelect() {
+  const sel = document.getElementById('stuGroup');
+  const current = sel.value;
+  sel.innerHTML = '<option value="">— เลือกกลุ่ม —</option>' +
+    CONFIG.groups.map(function (g) { return '<option value="' + escapeHtml(g.name) + '">' + escapeHtml(g.name) + ' — ' + escapeHtml(g.subject) + '</option>'; }).join('');
+  if (current) sel.value = current;
+}
+
+function openLocationForm(existing) {
+  document.getElementById('locOriginalName').value = existing ? existing.name : '';
+  document.getElementById('locName').value = existing ? existing.name : '';
+  document.getElementById('locRent').value = existing ? existing.rent : '';
+  document.getElementById('locAliases').value = existing ? existing.aliases.join(', ') : '';
+  document.getElementById('locNote').value = existing ? existing.note : '';
+  document.getElementById('locationForm').style.display = 'block';
+}
+function closeLocationForm() { document.getElementById('locationForm').style.display = 'none'; }
+
+function openGroupForm(existing) {
+  document.getElementById('grpOriginalName').value = existing ? existing.name : '';
+  document.getElementById('grpName').value = existing ? existing.name : '';
+  document.getElementById('grpSubject').value = existing ? existing.subject : '';
+  document.getElementById('grpRate').value = existing ? existing.rate : '';
+  document.getElementById('grpTeacherFee').value = existing ? existing.teacherRoomFee : '';
+  document.getElementById('grpAliases').value = existing ? existing.aliases.join(', ') : '';
+  document.getElementById('grpNote').value = existing ? existing.note : '';
+  document.getElementById('groupForm').style.display = 'block';
+}
+function closeGroupForm() { document.getElementById('groupForm').style.display = 'none'; }
+
+function openStudentForm(existing) {
+  populateStudentGroupSelect();
+  document.getElementById('stuOriginalName').value = existing ? existing.name : '';
+  document.getElementById('stuName').value = existing ? existing.name : '';
+  document.getElementById('stuGroup').value = existing ? (existing.group || '') : '';
+  document.getElementById('stuPhone').value = existing ? (existing.studentPhone || '') : '';
+  document.getElementById('stuParentName').value = existing ? (existing.parentName || '') : '';
+  document.getElementById('stuParentPhone').value = existing ? (existing.parentPhone || '') : '';
+  document.getElementById('stuNote').value = existing ? (existing.note || '') : '';
+  document.getElementById('studentForm').style.display = 'block';
+}
+function closeStudentForm() { document.getElementById('studentForm').style.display = 'none'; }
+
+document.getElementById('addLocationBtn').addEventListener('click', function () { openLocationForm(null); });
+document.getElementById('locCancelBtn').addEventListener('click', closeLocationForm);
+document.getElementById('locSaveBtn').addEventListener('click', function () {
+  const name = document.getElementById('locName').value.trim();
+  if (!name) { toast('กรุณาระบุชื่อสถานที่'); return; }
+  const originalName = document.getElementById('locOriginalName').value;
+  const payload = {
+    name: name,
+    rent: parseFloat(document.getElementById('locRent').value) || 0,
+    note: document.getElementById('locNote').value.trim(),
+    aliases: document.getElementById('locAliases').value.split(',').map(function (s) { return s.trim(); }).filter(Boolean)
+  };
+  const action = originalName ? 'updateLocation' : 'addLocation';
+  if (originalName) payload.originalName = originalName;
+  apiPost(action, payload).then(function (res) {
+    if (res.ok) { toast('บันทึกแล้ว'); closeLocationForm(); refreshConfig().then(renderSettings); }
+    else toast('เกิดข้อผิดพลาด: ' + (res.error || 'unknown'));
+  }).catch(function () { toast('ส่งไม่สำเร็จ ลองใหม่เมื่อออนไลน์'); });
+});
+
+document.getElementById('addGroupBtn').addEventListener('click', function () { openGroupForm(null); });
+document.getElementById('grpCancelBtn').addEventListener('click', closeGroupForm);
+document.getElementById('grpSaveBtn').addEventListener('click', function () {
+  const name = document.getElementById('grpName').value.trim();
+  if (!name) { toast('กรุณาระบุชื่อกลุ่ม'); return; }
+  const originalName = document.getElementById('grpOriginalName').value;
+  const payload = {
+    name: name,
+    subject: document.getElementById('grpSubject').value.trim(),
+    rate: parseFloat(document.getElementById('grpRate').value) || 0,
+    teacherRoomFee: parseFloat(document.getElementById('grpTeacherFee').value) || 0,
+    note: document.getElementById('grpNote').value.trim(),
+    aliases: document.getElementById('grpAliases').value.split(',').map(function (s) { return s.trim(); }).filter(Boolean)
+  };
+  const action = originalName ? 'updateGroup' : 'addGroup';
+  if (originalName) payload.originalName = originalName;
+  apiPost(action, payload).then(function (res) {
+    if (res.ok) { toast('บันทึกแล้ว'); closeGroupForm(); refreshConfig().then(renderSettings); }
+    else toast('เกิดข้อผิดพลาด: ' + (res.error || 'unknown'));
+  }).catch(function () { toast('ส่งไม่สำเร็จ ลองใหม่เมื่อออนไลน์'); });
+});
+
+document.getElementById('addStudentBtn').addEventListener('click', function () { openStudentForm(null); });
+document.getElementById('stuCancelBtn').addEventListener('click', closeStudentForm);
+document.getElementById('stuSaveBtn').addEventListener('click', function () {
+  const name = document.getElementById('stuName').value.trim();
+  if (!name) { toast('กรุณาระบุชื่อนักเรียน'); return; }
+  const originalName = document.getElementById('stuOriginalName').value;
+  const payload = {
+    name: name,
+    group: document.getElementById('stuGroup').value,
+    studentPhone: document.getElementById('stuPhone').value.trim(),
+    parentName: document.getElementById('stuParentName').value.trim(),
+    parentPhone: document.getElementById('stuParentPhone').value.trim(),
+    note: document.getElementById('stuNote').value.trim()
+  };
+  const action = originalName ? 'updateStudent' : 'addStudent';
+  if (originalName) payload.originalName = originalName;
+  apiPost(action, payload).then(function (res) {
+    if (res.ok) { toast('บันทึกแล้ว'); closeStudentForm(); refreshConfig().then(renderSettings); }
+    else toast('เกิดข้อผิดพลาด: ' + (res.error || 'unknown'));
+  }).catch(function () { toast('ส่งไม่สำเร็จ ลองใหม่เมื่อออนไลน์'); });
+});
+
+/* ============================================================================
  * Data refresh
  * ============================================================================ */
 function refreshConfig() {
   return Promise.all([apiGet('config'), apiGet('students')]).then(function (results) {
     const cfgRes = results[0], stuRes = results[1];
     if (cfgRes.ok && cfgRes.data) {
-      cfgRes.data.locations.forEach(function (l) {
-        const existing = findConfig(l.name, CONFIG.locations, 'name');
-        if (existing) { existing.rent = l.rent; }
-        else CONFIG.locations.push(Object.assign({ aliases: [] }, l));
-      });
-      cfgRes.data.groups.forEach(function (g) {
-        const existing = findConfig(g.name, CONFIG.groups, 'name');
-        if (existing) { existing.rate = g.rate; existing.teacherRoomFee = g.teacherRoomFee; existing.subject = g.subject; }
-        else CONFIG.groups.push(Object.assign({ aliases: [] }, g));
-      });
+      // Server (ตั้งค่า tab, including its aliases columns) is fully authoritative —
+      // replace outright rather than merge-by-name, so a rename via the Settings
+      // screen can't leave a stale duplicate entry behind under the old name.
+      CONFIG.locations = cfgRes.data.locations.map(function (l) { return Object.assign({ aliases: [] }, l); });
+      CONFIG.groups = cfgRes.data.groups.map(function (g) { return Object.assign({ aliases: [] }, g); });
     }
     if (stuRes.ok && stuRes.data) {
-      CONFIG.students = stuRes.data.map(function (s) { return { code: s.code, name: s.name, group: s.group }; });
+      CONFIG.students = stuRes.data.map(function (s) {
+        return { code: s.code, name: s.name, group: s.group, studentPhone: s.studentPhone, parentName: s.parentName, parentPhone: s.parentPhone, note: s.note };
+      });
     }
     saveCache();
   }).catch(function (e) { console.warn('refreshConfig failed, using cache', e); });

@@ -150,6 +150,24 @@ function doPost(e) {
       case 'recordPayment':
         result = recordPayment(payload);
         break;
+      case 'addLocation':
+        result = addLocation(payload);
+        break;
+      case 'updateLocation':
+        result = updateLocation(payload);
+        break;
+      case 'addGroup':
+        result = addGroup(payload);
+        break;
+      case 'updateGroup':
+        result = updateGroup(payload);
+        break;
+      case 'addStudent':
+        result = addStudent(payload);
+        break;
+      case 'updateStudent':
+        result = updateStudent(payload);
+        break;
       default:
         return jsonOutput({ ok: false, error: 'unknown action' });
     }
@@ -218,16 +236,16 @@ function getConfig() {
   if (lastRow < ROWS.SETTINGS_DATA_ROW) return { locations: [], groups: [], bank: {} };
   const numRows = lastRow - ROWS.SETTINGS_DATA_ROW + 1;
 
-  // Locations: columns A-C (1-3)
-  const locVals = sh.getRange(ROWS.SETTINGS_DATA_ROW, 1, numRows, 3).getValues();
+  // Locations: columns A-D (1-4). D = aliases (comma-separated shorthand words).
+  const locVals = sh.getRange(ROWS.SETTINGS_DATA_ROW, 1, numRows, 4).getValues();
   const locations = locVals
     .filter(function (r) { return r[0]; })
     .map(function (r) {
-      return { name: String(r[0]), rent: Number(r[1]) || 0, note: String(r[2] || '') };
+      return { name: String(r[0]), rent: Number(r[1]) || 0, note: String(r[2] || ''), aliases: parseNames_(r[3]) };
     });
 
-  // Groups: columns E-I (5-9)
-  const grpVals = sh.getRange(ROWS.SETTINGS_DATA_ROW, 5, numRows, 5).getValues();
+  // Groups: columns E-J (5-10). J = aliases (comma-separated shorthand words).
+  const grpVals = sh.getRange(ROWS.SETTINGS_DATA_ROW, 5, numRows, 6).getValues();
   const groups = grpVals
     .filter(function (r) { return r[0]; })
     .map(function (r) {
@@ -236,7 +254,8 @@ function getConfig() {
         subject: String(r[1]),
         rate: Number(r[2]) || 0,
         teacherRoomFee: Number(r[3]) || 0,
-        note: String(r[4] || '')
+        note: String(r[4] || ''),
+        aliases: parseNames_(r[5])
       };
     });
 
@@ -729,6 +748,139 @@ function recordPayment(payload) {
     received: received,
     outstanding: outstanding
   };
+}
+
+// ============================================================================
+// Roster management (locations / groups / students) — lets the Settings
+// screen add/edit these in-app instead of requiring direct Sheet access.
+// ตั้งค่า holds TWO independent side-by-side tables (locations in A-D,
+// groups in E-J) that can have different row counts, so appends must find
+// the first empty row within the relevant column, not just use the sheet's
+// overall last row.
+// ============================================================================
+
+function ensureSettingsAliasHeaders_(sh) {
+  if (!sh.getRange(ROWS.SETTINGS_HEADER_ROW, 4).getValue()) {
+    sh.getRange(ROWS.SETTINGS_HEADER_ROW, 4).setValue('Aliases (คั่นด้วยจุลภาค)');
+  }
+  if (!sh.getRange(ROWS.SETTINGS_HEADER_ROW, 10).getValue()) {
+    sh.getRange(ROWS.SETTINGS_HEADER_ROW, 10).setValue('Aliases (คั่นด้วยจุลภาค)');
+  }
+}
+
+function firstEmptyRowInColumn_(sh, col, startRow) {
+  const maxRows = sh.getMaxRows();
+  if (maxRows < startRow) return startRow;
+  const values = sh.getRange(startRow, col, maxRows - startRow + 1, 1).getValues();
+  for (let i = 0; i < values.length; i++) {
+    if (!values[i][0]) return startRow + i;
+  }
+  return startRow + values.length;
+}
+
+function findSettingsRowByName_(sh, col, name) {
+  const lastRow = sh.getLastRow();
+  if (lastRow < ROWS.SETTINGS_DATA_ROW) return -1;
+  const values = sh.getRange(ROWS.SETTINGS_DATA_ROW, col, lastRow - ROWS.SETTINGS_DATA_ROW + 1, 1).getValues();
+  for (let i = 0; i < values.length; i++) {
+    if (String(values[i][0]) === String(name)) return ROWS.SETTINGS_DATA_ROW + i;
+  }
+  return -1;
+}
+
+/** payload: { name, rent, note, aliases: [] } */
+function addLocation(payload) {
+  if (!payload.name) throw new Error('name required');
+  const sh = sheet_(SHEET_NAMES.SETTINGS);
+  ensureSettingsAliasHeaders_(sh);
+  if (findSettingsRowByName_(sh, 1, payload.name) > 0) throw new Error('มีสถานที่ชื่อนี้อยู่แล้ว');
+  const rowIndex = firstEmptyRowInColumn_(sh, 1, ROWS.SETTINGS_DATA_ROW);
+  sh.getRange(rowIndex, 1, 1, 4).setValues([[
+    payload.name, Number(payload.rent) || 0, payload.note || '', (payload.aliases || []).join(', ')
+  ]]);
+  return { name: payload.name };
+}
+
+/** payload: { originalName, name, rent, note, aliases: [] } */
+function updateLocation(payload) {
+  const sh = sheet_(SHEET_NAMES.SETTINGS);
+  ensureSettingsAliasHeaders_(sh);
+  const rowIndex = findSettingsRowByName_(sh, 1, payload.originalName);
+  if (rowIndex < 0) throw new Error('ไม่พบสถานที่: ' + payload.originalName);
+  sh.getRange(rowIndex, 1, 1, 4).setValues([[
+    payload.name, Number(payload.rent) || 0, payload.note || '', (payload.aliases || []).join(', ')
+  ]]);
+  return { name: payload.name };
+}
+
+/** payload: { name, subject, rate, teacherRoomFee, note, aliases: [] } */
+function addGroup(payload) {
+  if (!payload.name) throw new Error('name required');
+  const sh = sheet_(SHEET_NAMES.SETTINGS);
+  ensureSettingsAliasHeaders_(sh);
+  if (findSettingsRowByName_(sh, 5, payload.name) > 0) throw new Error('มีกลุ่มชื่อนี้อยู่แล้ว');
+  const rowIndex = firstEmptyRowInColumn_(sh, 5, ROWS.SETTINGS_DATA_ROW);
+  sh.getRange(rowIndex, 5, 1, 6).setValues([[
+    payload.name, payload.subject || '', Number(payload.rate) || 0, Number(payload.teacherRoomFee) || 0,
+    payload.note || '', (payload.aliases || []).join(', ')
+  ]]);
+  return { name: payload.name };
+}
+
+/** payload: { originalName, name, subject, rate, teacherRoomFee, note, aliases: [] } */
+function updateGroup(payload) {
+  const sh = sheet_(SHEET_NAMES.SETTINGS);
+  ensureSettingsAliasHeaders_(sh);
+  const rowIndex = findSettingsRowByName_(sh, 5, payload.originalName);
+  if (rowIndex < 0) throw new Error('ไม่พบกลุ่ม: ' + payload.originalName);
+  sh.getRange(rowIndex, 5, 1, 6).setValues([[
+    payload.name, payload.subject || '', Number(payload.rate) || 0, Number(payload.teacherRoomFee) || 0,
+    payload.note || '', (payload.aliases || []).join(', ')
+  ]]);
+  return { name: payload.name };
+}
+
+function nextStudentCode_(sh) {
+  const lastRow = sh.getLastRow();
+  if (lastRow < ROWS.STUDENTS_DATA_ROW) return 1;
+  const codes = sh.getRange(ROWS.STUDENTS_DATA_ROW, 1, lastRow - ROWS.STUDENTS_DATA_ROW + 1, 1).getValues();
+  let max = 0;
+  codes.forEach(function (r) {
+    const n = Number(r[0]);
+    if (!isNaN(n) && n > max) max = n;
+  });
+  return max + 1;
+}
+
+/** payload: { name, group, studentPhone, parentName, parentPhone, note } */
+function addStudent(payload) {
+  if (!payload.name) throw new Error('name required');
+  const sh = sheet_(SHEET_NAMES.STUDENTS);
+  const rowIndex = sh.getLastRow() < ROWS.STUDENTS_DATA_ROW ? ROWS.STUDENTS_DATA_ROW : sh.getLastRow() + 1;
+  const code = nextStudentCode_(sh);
+  sh.getRange(rowIndex, 1, 1, 7).setValues([[
+    code, payload.name, payload.group || '', payload.studentPhone || '',
+    payload.parentName || '', payload.parentPhone || '', payload.note || ''
+  ]]);
+  return { code: code, name: payload.name };
+}
+
+/** payload: { originalName, name, group, studentPhone, parentName, parentPhone, note } */
+function updateStudent(payload) {
+  const sh = sheet_(SHEET_NAMES.STUDENTS);
+  const lastRow = sh.getLastRow();
+  if (lastRow < ROWS.STUDENTS_DATA_ROW) throw new Error('ไม่พบนักเรียน: ' + payload.originalName);
+  const names = sh.getRange(ROWS.STUDENTS_DATA_ROW, 2, lastRow - ROWS.STUDENTS_DATA_ROW + 1, 1).getValues();
+  let rowIndex = -1;
+  for (let i = 0; i < names.length; i++) {
+    if (String(names[i][0]) === String(payload.originalName)) { rowIndex = ROWS.STUDENTS_DATA_ROW + i; break; }
+  }
+  if (rowIndex < 0) throw new Error('ไม่พบนักเรียน: ' + payload.originalName);
+  sh.getRange(rowIndex, 2, 1, 6).setValues([[
+    payload.name, payload.group || '', payload.studentPhone || '',
+    payload.parentName || '', payload.parentPhone || '', payload.note || ''
+  ]]);
+  return { name: payload.name };
 }
 
 /**
