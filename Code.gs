@@ -816,6 +816,10 @@ function updateLocation(payload) {
   ensureSettingsAliasHeaders_(sh);
   const rowIndex = findSettingsRowByName_(sh, 1, payload.originalName);
   if (rowIndex < 0) throw new Error('ไม่พบสถานที่: ' + payload.originalName);
+  if (payload.name !== payload.originalName) {
+    const collision = findSettingsRowByName_(sh, 1, payload.name);
+    if (collision > 0 && collision !== rowIndex) throw new Error('มีสถานที่ชื่อนี้อยู่แล้ว');
+  }
   sh.getRange(rowIndex, 1, 1, 4).setValues([[
     payload.name, Number(payload.rent) || 0, payload.note || '', (payload.aliases || []).join(', ')
   ]]);
@@ -842,6 +846,10 @@ function updateGroup(payload) {
   ensureSettingsAliasHeaders_(sh);
   const rowIndex = findSettingsRowByName_(sh, 5, payload.originalName);
   if (rowIndex < 0) throw new Error('ไม่พบกลุ่ม: ' + payload.originalName);
+  if (payload.name !== payload.originalName) {
+    const collision = findSettingsRowByName_(sh, 5, payload.name);
+    if (collision > 0 && collision !== rowIndex) throw new Error('มีกลุ่มชื่อนี้อยู่แล้ว');
+  }
   sh.getRange(rowIndex, 5, 1, 6).setValues([[
     payload.name, payload.subject || '', Number(payload.rate) || 0, Number(payload.teacherRoomFee) || 0,
     payload.note || '', (payload.aliases || []).join(', ')
@@ -865,6 +873,9 @@ function nextStudentCode_(sh) {
 function addStudent(payload) {
   if (!payload.name) throw new Error('name required');
   const sh = sheet_(SHEET_NAMES.STUDENTS);
+  if (findStudentRowByName_(sh, payload.name) > 0) {
+    throw new Error('มีนักเรียนชื่อนี้อยู่แล้ว — ถ้าเป็นคนละคนจริง ลองใส่ชื่อให้ต่างกันชัดเจน เช่น เติมนามสกุลหรือชื่อเล่นกลุ่ม');
+  }
   const rowIndex = sh.getLastRow() < ROWS.STUDENTS_DATA_ROW ? ROWS.STUDENTS_DATA_ROW : sh.getLastRow() + 1;
   const code = nextStudentCode_(sh);
   sh.getRange(rowIndex, 1, 1, 7).setValues([[
@@ -889,6 +900,10 @@ function updateStudent(payload) {
   const sh = sheet_(SHEET_NAMES.STUDENTS);
   const rowIndex = findStudentRowByName_(sh, payload.originalName);
   if (rowIndex < 0) throw new Error('ไม่พบนักเรียน: ' + payload.originalName);
+  if (payload.name !== payload.originalName) {
+    const collision = findStudentRowByName_(sh, payload.name);
+    if (collision > 0 && collision !== rowIndex) throw new Error('มีนักเรียนชื่อนี้อยู่แล้ว');
+  }
   sh.getRange(rowIndex, 2, 1, 6).setValues([[
     payload.name, payload.group || '', payload.studentPhone || '',
     payload.parentName || '', payload.parentPhone || '', payload.note || ''
