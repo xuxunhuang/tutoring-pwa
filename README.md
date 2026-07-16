@@ -38,9 +38,13 @@ frameworks, zero LLM/AI calls at runtime.
 ## 1. Fill in your real data
 
 Open the Sheet (link above) and fill in:
-- `ตั้งค่า` tab: your real locations (name + rent/session) in columns A-C
-  starting row 3, and your real groups (name + subject + rate/hr + teacher's
-  room-fee share) in columns E-I starting row 3.
+- `ตั้งค่า` tab: your real locations (name, rent/session, and the room fee
+  you cover by default at that venue) in columns A-E starting row 3, and
+  your real groups (name, subject, rate/hr) in columns G-K starting row 3
+  (column F is intentionally left blank as a gap between the two tables).
+  The teacher's room-fee-covered amount lives on the *location* now, not
+  the group — it's just a default, editable per session when you actually
+  book one.
 - `นักเรียน` tab: your real students (name, group, contact info).
 
 ## 2. Deploy the Apps Script backend
@@ -88,10 +92,9 @@ const CONFIG = {
 
 `locations`/`groups`/`students` start empty on purpose (this is a from-scratch
 deployment, not seeded with demo data) — on every load, the app fetches live
-data from `action=config`/`action=students` and caches it to localStorage for
-offline use. The one thing that does **not** come from the Sheet automatically
-is each location's/group's `aliases: []` array (see "Adding / changing data"
-below) — add those once you know your real location/group names.
+data from `action=config`/`action=students`, including each location's/group's
+`aliases`, and caches it to localStorage for offline use. See "Adding /
+changing data" below for how to add your real ones.
 
 ## 4. Hosting — already done
 
@@ -106,14 +109,16 @@ offline support to work.
 
 ## Adding / changing data
 
-- **New student**: edit the `นักเรียน` tab directly — no code change needed.
-  The app re-fetches the student list on every load.
-- **New location or group/rate**: edit the `ตั้งค่า` tab, **and** add a
-  matching entry (with an `aliases: []` list of the shorthand words you want
-  to type, e.g. `"จอย"`) to `CONFIG.locations` / `CONFIG.groups` inside
-  `index.html`. The rent/rate/teacher-room-fee numbers themselves sync
-  automatically from the Sheet — only the alias words are hand-maintained,
-  since they're a frontend-only shorthand convenience.
+Everything below — locations, groups, students — can be added, edited, and
+deleted from the app's **Settings** tab (⚙️) directly, including each
+location's/group's shorthand `aliases` (a comma-separated field right in the
+Sheet now, not something hand-maintained in `index.html`). No code change is
+ever required to add a new one.
+
+Editing the Sheet directly still works too, if you'd rather do it there —
+`Code.gs` reads it live either way, and the app re-fetches on every load.
+Both paths are always in sync; there's no separate "source of truth" to keep
+manually aligned.
 
 ## Command grammar quick reference
 

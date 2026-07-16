@@ -345,6 +345,8 @@ input.field-input{
 .settings-row .info{min-width:0;}
 .settings-row .info .name{font-weight:600;color:var(--text);font-size:14px;}
 .settings-row .info .sub{font-size:12px;color:var(--text-muted);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.pending-pick-row.selected{border-color:var(--primary);background:var(--primary-dim);}
+.pending-pick-row .info .sub{white-space:normal;}
 .settings-row .edit-btn{
   background:var(--surface-2);border:none;border-radius:var(--r-pill);min-width:36px;min-height:36px;
   font-size:16px;cursor:pointer;flex-shrink:0;margin-left:8px;
@@ -375,6 +377,12 @@ input.field-input{
         <button type="button" class="seg-btn" data-action="cancel">ยกเลิกคาบ</button>
       </div>
 
+      <div class="card form-card" id="pendingPickerCard" style="display:none;">
+        <label class="field-label">คาบที่วางแผนไว้ — แตะเพื่อเลือก</label>
+        <div id="pendingPickerList" class="settings-list"></div>
+        <div class="empty-state" id="pendingPickerEmpty" style="display:none;padding:16px 0;">ยังไม่มีคาบที่วางแผนไว้</div>
+      </div>
+
       <div class="card form-card">
         <label class="field-label" for="formGroup">กลุ่ม</label>
         <select id="formGroup" class="field-select">
@@ -403,6 +411,12 @@ input.field-input{
             <input type="number" id="formHours" class="stepper-input" value="1" step="0.5" min="0.5" disabled>
             <button type="button" class="stepper-btn" id="hoursPlus" disabled>+</button>
           </div>
+        </div>
+
+        <div id="teacherFeeSection">
+          <label class="field-label">ครูออกค่าห้อง/ครั้ง (บาท)</label>
+          <input type="number" id="formTeacherFee" class="field-input" placeholder="0" step="1" min="0" disabled>
+          <div class="inline-hint" style="margin-top:2px;">ค่าเริ่มต้นจากสถานที่ที่เลือก ปรับได้ถ้าคาบนี้ไม่เหมือนปกติ</div>
         </div>
 
         <div id="studentsSection">
@@ -468,6 +482,9 @@ input.field-input{
         <input type="text" id="locName" class="field-input" placeholder="เช่น Genius K.Joy">
         <label class="field-label">ค่าเช่า/ครั้ง (บาท)</label>
         <input type="number" id="locRent" class="field-input" placeholder="0" step="1" min="0">
+        <label class="field-label">ครูออกค่าห้อง/ครั้ง — ค่าเริ่มต้น (บาท)</label>
+        <input type="number" id="locTeacherFee" class="field-input" placeholder="0" step="1" min="0">
+        <div class="inline-hint" style="margin:-4px 0 10px;">ปรับได้อีกทีตอนบันทึกคาบเรียนจริง ค่านี้เป็นแค่ค่าเริ่มต้น</div>
         <label class="field-label">คำย่อสำหรับพิมพ์คำสั่ง (คั่นด้วยจุลภาค)</label>
         <input type="text" id="locAliases" class="field-input" placeholder="เช่น จอย, genius">
         <label class="field-label">หมายเหตุ</label>
@@ -493,8 +510,6 @@ input.field-input{
         <input type="text" id="grpSubject" class="field-input" placeholder="เช่น คณิตศาสตร์">
         <label class="field-label">ค่าสอน/คน/ชม. (บาท)</label>
         <input type="number" id="grpRate" class="field-input" placeholder="0" step="1" min="0">
-        <label class="field-label">ครูออกค่าห้อง/ครั้ง (บาท)</label>
-        <input type="number" id="grpTeacherFee" class="field-input" placeholder="0" step="1" min="0">
         <label class="field-label">คำย่อสำหรับพิมพ์คำสั่ง (คั่นด้วยจุลภาค)</label>
         <input type="text" id="grpAliases" class="field-input" placeholder="เช่น g1, คณิต">
         <label class="field-label">หมายเหตุ</label>
@@ -924,9 +939,9 @@ const Parser = (function () {
 /* ============================================================================
  * Money preview calc — mirrors Code.gs computeRow_ exactly.
  * ============================================================================ */
-function computePreview(groupObj, locationObj, hours, planList, attendedList) {
+function computePreview(groupObj, locationObj, hours, planList, attendedList, teacherRoomFeeOverride) {
   const rentTotal = locationObj.rent;
-  const rentTeacher = groupObj.teacherRoomFee;
+  const rentTeacher = (teacherRoomFeeOverride != null && teacherRoomFeeOverride !== '') ? Number(teacherRoomFeeOverride) : locationObj.teacherRoomFee;
   const rate = groupObj.rate;
   const planCount = planList.length;
   const attendCount = attendedList.length;
@@ -1052,9 +1067,12 @@ function statusBadge(status) {
   return '<span class="badge pending">-</span>';
 }
 
-function renderDispatchPreview() {
+function renderDispatchPreview(teacherRoomFeeOverride) {
   const val = cmdInput.value;
   const result = Parser.parseCommand(val, CONFIG);
+  // Must be attached before any rendering below, not after — the confirm
+  // card is built synchronously in this same function call.
+  if (teacherRoomFeeOverride !== undefined) result.teacherRoomFee = teacherRoomFeeOverride;
   State.currentParse = result;
 
   if (result.kind === 'empty') {
@@ -1128,7 +1146,7 @@ function renderConfirmCard(result) {
       row('นักเรียนที่มา', result.students.join(', ') || '-') +
       row('สถานะใหม่', statusBadge('taught'));
   } else {
-    const preview = computePreview(groupObj, locObj, result.hours, result.students, (result.status === 'taught' ? result.students : []));
+    const preview = computePreview(groupObj, locObj, result.hours, result.students, (result.status === 'taught' ? result.students : []), result.teacherRoomFee);
     bodyHtml =
       '<h3>ยืนยันคาบเรียน</h3>' +
       row('กลุ่ม', result.group + ' (' + result.subject + ')') +
@@ -1196,6 +1214,7 @@ document.getElementById('cmdGo').addEventListener('click', function () {
  * ============================================================================ */
 State.dispatchMode = 'form';
 State.formAction = 'new'; // 'new' | 'checkin' | 'cancel'
+State.selectedPendingRowIndex = null; // set when tapping a row in the checkin/cancel picker
 State.formSelectedStudents = {};
 
 const modeTabForm = document.getElementById('modeTabForm');
@@ -1210,6 +1229,8 @@ const formHoursInput = document.getElementById('formHours');
 const hoursMinusBtn = document.getElementById('hoursMinus');
 const hoursPlusBtn = document.getElementById('hoursPlus');
 const hoursSection = document.getElementById('hoursSection');
+const formTeacherFeeInput = document.getElementById('formTeacherFee');
+const teacherFeeSection = document.getElementById('teacherFeeSection');
 const studentsSection = document.getElementById('studentsSection');
 const studentsHint = document.getElementById('studentsHint');
 const studentChipsWrap = document.getElementById('studentChips');
@@ -1244,6 +1265,7 @@ function populateFormSelectors() {
   if (CONFIG.groups.some(function (g) { return g.name === prevGroup; })) formGroupSel.value = prevGroup;
   if (CONFIG.locations.some(function (l) { return l.name === prevLoc; })) formLocationSel.value = prevLoc;
   updateFieldEnablement();
+  applyLocationDefaults();
 }
 
 function updateFieldEnablement() {
@@ -1252,13 +1274,84 @@ function updateFieldEnablement() {
   formHoursInput.disabled = !hasGroup;
   hoursMinusBtn.disabled = !hasGroup;
   hoursPlusBtn.disabled = !hasGroup;
+  formTeacherFeeInput.disabled = !hasGroup;
   studentChipsWrap.parentElement.classList.toggle('disabled-section', !hasGroup);
 }
+
+// Room fee defaults from the selected location but is editable per session —
+// re-fill it whenever the location changes, unless the user already typed
+// something (tracked via a data attribute so we don't clobber a manual edit).
+function applyLocationDefaults() {
+  const loc = findConfig(formLocationSel.value, CONFIG.locations, 'name');
+  if (loc && formTeacherFeeInput.dataset.touched !== '1') {
+    formTeacherFeeInput.value = loc.teacherRoomFee;
+  }
+}
+formLocationSel.addEventListener('change', applyLocationDefaults);
+formTeacherFeeInput.addEventListener('input', function () { formTeacherFeeInput.dataset.touched = '1'; });
 
 function applyActionModeVisibility() {
   const mode = State.formAction;
   hoursSection.style.display = mode === 'new' ? '' : 'none';
+  teacherFeeSection.style.display = mode === 'new' ? '' : 'none';
   studentsSection.style.display = mode === 'cancel' ? 'none' : '';
+  document.getElementById('pendingPickerCard').style.display = mode === 'new' ? 'none' : '';
+  if (mode !== 'new') renderPendingPicker();
+}
+
+// Check-in/Cancel start from "what's actually coming up" instead of asking
+// the owner to blindly re-pick group+location — tapping a row here just
+// fills in the (still-visible, still-editable) fields below and remembers
+// the exact row so checkIn/cancelSession target it directly rather than
+// guessing via a "nearest pending" heuristic.
+function renderPendingPicker() {
+  const list = document.getElementById('pendingPickerList');
+  const empty = document.getElementById('pendingPickerEmpty');
+  const pending = State.sessions
+    .filter(function (s) { return s.status === STATUS_LABEL.PLAN; })
+    .sort(function (a, b) { return (a.dateEntered || '').localeCompare(b.dateEntered || ''); });
+
+  if (pending.length === 0) {
+    list.innerHTML = '';
+    empty.style.display = '';
+    return;
+  }
+  empty.style.display = 'none';
+  list.innerHTML = pending.map(function (s, i) {
+    const dateLabel = s.dateEntered ? thaiDateLabel(s.dateEntered) : '(ไม่มีวันที่)';
+    const selected = State.selectedPendingRowIndex === s.rowIndex;
+    return '<div class="settings-row pending-pick-row' + (selected ? ' selected' : '') + '" data-rowindex="' + s.rowIndex + '" style="cursor:pointer;">' +
+      '<div class="info"><div class="name">' + escapeHtml(dateLabel) + ' — ' + escapeHtml(s.group) + ' @ ' + escapeHtml(s.location) + '</div>' +
+      '<div class="sub">แผน: ' + escapeHtml(s.plan || '-') + '</div></div>' +
+      (selected ? '<span style="color:var(--primary);font-size:20px;">✓</span>' : '') +
+      '</div>';
+  }).join('');
+
+  list.querySelectorAll('[data-rowindex]').forEach(function (row) {
+    row.addEventListener('click', function () {
+      const rowIndex = parseInt(row.dataset.rowindex, 10);
+      const session = pending.filter(function (s) { return s.rowIndex === rowIndex; })[0];
+      if (!session) return;
+      State.selectedPendingRowIndex = rowIndex;
+      formGroupSel.value = session.group;
+      formLocationSel.value = session.location;
+      formDateInput.value = session.dateEntered || toISODate(bkkNow());
+      if (State.formAction === 'checkin') {
+        State.formSelectedStudents = {};
+        parseNamesClient(session.plan).forEach(function (n) { State.formSelectedStudents[n] = true; });
+      }
+      updateFieldEnablement();
+      applyLocationDefaults();
+      renderStudentChips();
+      renderPendingPicker();
+      updateFormPreview();
+    });
+  });
+}
+
+function parseNamesClient(str) {
+  if (!str) return [];
+  return String(str).split(',').map(function (s) { return s.trim(); }).filter(Boolean);
 }
 
 function renderStudentChips() {
@@ -1346,9 +1439,13 @@ function resetFormFields() {
   formLocationSel.value = '';
   formDateInput.value = toISODate(bkkNow());
   formHoursInput.value = '1';
+  formTeacherFeeInput.value = '';
+  delete formTeacherFeeInput.dataset.touched;
   State.formSelectedStudents = {};
+  State.selectedPendingRowIndex = null;
   updateFieldEnablement();
   renderStudentChips();
+  renderPendingPicker();
   updateFormPreview();
 }
 
@@ -1370,7 +1467,13 @@ function updateFormPreview() {
     return;
   }
   cmdInput.value = buildShorthandFromForm();
-  renderDispatchPreview();
+  // teacherRoomFee override isn't part of the shorthand grammar (form-only
+  // convenience) — pass it in so it's on the result BEFORE the confirm card
+  // renders (renderDispatchPreview renders synchronously in the same call).
+  const feeOverride = (State.formAction === 'new')
+    ? (formTeacherFeeInput.value === '' ? null : parseFloat(formTeacherFeeInput.value))
+    : undefined;
+  renderDispatchPreview(feeOverride);
   attachFormResetHooks();
 }
 
@@ -1404,13 +1507,14 @@ actionSegmented.querySelectorAll('.seg-btn').forEach(function (btn) {
 });
 
 formGroupSel.addEventListener('change', function () {
+  State.selectedPendingRowIndex = null; // manual edit after a picker-tap supersedes it
   updateFieldEnablement();
   State.formSelectedStudents = {};
   renderStudentChips();
   updateFormPreview();
 });
-formLocationSel.addEventListener('change', updateFormPreview);
-formDateInput.addEventListener('change', updateFormPreview);
+formLocationSel.addEventListener('change', function () { State.selectedPendingRowIndex = null; updateFormPreview(); });
+formDateInput.addEventListener('change', function () { State.selectedPendingRowIndex = null; updateFormPreview(); });
 formHoursInput.addEventListener('input', updateFormPreview);
 hoursMinusBtn.addEventListener('click', function () {
   let v = parseFloat(formHoursInput.value) || 1;
@@ -1454,6 +1558,9 @@ function submitParsedResult(result) {
 
   if (result.mode === 'cancel') {
     const payload = { group: result.group, location: result.location, date: result.date, clientKey: clientKey };
+    // A picker-tap (see renderPendingPicker) means we know exactly which row —
+    // prefer that over group+location+date matching, which can be ambiguous.
+    if (State.selectedPendingRowIndex) payload.rowIndex = State.selectedPendingRowIndex;
     doPostAction('cancelSession', payload, 'ยกเลิกคาบเรียนแล้ว');
     return;
   }
@@ -1462,6 +1569,7 @@ function submitParsedResult(result) {
       clientKey: clientKey, group: result.group, location: result.location,
       date: result.date, dateAttended: result.date, attendedList: result.students
     };
+    if (State.selectedPendingRowIndex) payload.rowIndex = State.selectedPendingRowIndex;
     doPostAction('checkIn', payload, 'เช็คอินสำเร็จ');
     return;
   }
@@ -1473,6 +1581,7 @@ function submitParsedResult(result) {
     attendedList: result.status === 'taught' ? result.students : [],
     dateAttended: result.status === 'taught' ? result.date : ''
   };
+  if (result.teacherRoomFee != null) payload.teacherRoomFee = result.teacherRoomFee;
   doPostAction('addSession', payload, 'บันทึกคาบเรียนแล้ว');
 }
 
@@ -1630,6 +1739,17 @@ function renderSummary() {
   const totalTeacherRoom = sessions.reduce(function (a, s) { return a + (s.rentTeacher || 0); }, 0);
   const netProfit = totalRevenue - totalTeacherRoom;
 
+  // Taught (billed) vs. actually collected — a separate cash-flow view from
+  // rendered profit above. Billed uses the payment ledger's amountTotal
+  // (teaching fee + each student's room-fee share), since that's what
+  // students actually owe, not just the tutor's own teaching-fee revenue.
+  const monthPayments = State.payments.filter(function (p) {
+    return (p.dateAttended || '').slice(0, 7) === month;
+  });
+  const totalBilled = monthPayments.reduce(function (a, p) { return a + (p.amountTotal || 0); }, 0);
+  const totalCollected = monthPayments.reduce(function (a, p) { return a + (p.received || 0); }, 0);
+  const totalOutstanding = monthPayments.reduce(function (a, p) { return a + (p.outstanding || 0); }, 0);
+
   function tableFrom(obj, labelHeader) {
     const rows = Object.keys(obj).map(function (k) {
       const v = obj[k];
@@ -1646,9 +1766,15 @@ function renderSummary() {
 
   content.innerHTML =
     '<div class="stat-grid">' +
-    '<div class="stat-tile"><div class="label">รายได้รวม</div><div class="value">฿' + fmtMoney(totalRevenue) + '</div></div>' +
-    '<div class="stat-tile"><div class="label">กำไรสุทธิ</div><div class="value">฿' + fmtMoney(netProfit) + '</div></div>' +
+    '<div class="stat-tile"><div class="label">รายได้ค่าสอน</div><div class="value">฿' + fmtMoney(totalRevenue) + '</div></div>' +
+    '<div class="stat-tile"><div class="label">กำไรสุทธิ (หลังหักค่าห้อง)</div><div class="value">฿' + fmtMoney(netProfit) + '</div></div>' +
     '</div>' +
+    '<div class="card list-enter"><h3>เงินที่ควรได้ vs. เก็บได้จริง</h3>' +
+    '<div class="stat-grid">' +
+    '<div class="stat-tile"><div class="label">สอนไปแล้ว (ยอดที่ต้องเก็บ)</div><div class="value">฿' + fmtMoney(totalBilled) + '</div></div>' +
+    '<div class="stat-tile"><div class="label">เก็บเงินแล้ว</div><div class="value">฿' + fmtMoney(totalCollected) + '</div></div>' +
+    '<div class="stat-tile"><div class="label">ค้างเก็บ</div><div class="value" style="color:' + (totalOutstanding > 0 ? 'var(--danger,#DC2626)' : 'inherit') + ';">฿' + fmtMoney(totalOutstanding) + '</div></div>' +
+    '</div></div>' +
     '<div class="card list-enter"><h3>ตามกลุ่ม</h3>' + tableFrom(byGroup, 'กลุ่ม') + '</div>' +
     '<div class="card list-enter"><h3>ตามสถานที่</h3>' + tableFrom(byLoc, 'สถานที่') + '</div>' +
     '<div class="card list-enter"><h3>ตามนักเรียน</h3><table class="breakdown"><thead><tr><th>นักเรียน</th><th class="num">ครั้ง</th><th class="num">ชม.</th></tr></thead><tbody>' + studentRows + '</tbody></table></div>';
@@ -1781,7 +1907,7 @@ function renderSettings() {
     locList.innerHTML = '<div class="empty-state" style="padding:16px;">ยังไม่มีสถานที่</div>';
   } else {
     CONFIG.locations.forEach(function (l) {
-      locList.appendChild(settingsRow(l.name, '฿' + fmtMoney(l.rent) + '/ครั้ง' + (l.aliases.length ? ' · ' + l.aliases.join(', ') : ''), function () {
+      locList.appendChild(settingsRow(l.name, '฿' + fmtMoney(l.rent) + '/ครั้ง · ครูออก ฿' + fmtMoney(l.teacherRoomFee) + (l.aliases.length ? ' · ' + l.aliases.join(', ') : ''), function () {
         openLocationForm(l);
       }, function () {
         apiPost('deleteLocation', { name: l.name }).then(function (res) {
@@ -1843,6 +1969,7 @@ function openLocationForm(existing) {
   document.getElementById('locOriginalName').value = existing ? existing.name : '';
   document.getElementById('locName').value = existing ? existing.name : '';
   document.getElementById('locRent').value = existing ? existing.rent : '';
+  document.getElementById('locTeacherFee').value = existing ? existing.teacherRoomFee : '';
   document.getElementById('locAliases').value = existing ? existing.aliases.join(', ') : '';
   document.getElementById('locNote').value = existing ? existing.note : '';
   document.getElementById('locationForm').style.display = 'block';
@@ -1854,7 +1981,6 @@ function openGroupForm(existing) {
   document.getElementById('grpName').value = existing ? existing.name : '';
   document.getElementById('grpSubject').value = existing ? existing.subject : '';
   document.getElementById('grpRate').value = existing ? existing.rate : '';
-  document.getElementById('grpTeacherFee').value = existing ? existing.teacherRoomFee : '';
   document.getElementById('grpAliases').value = existing ? existing.aliases.join(', ') : '';
   document.getElementById('grpNote').value = existing ? existing.note : '';
   document.getElementById('groupForm').style.display = 'block';
@@ -1883,6 +2009,7 @@ document.getElementById('locSaveBtn').addEventListener('click', function () {
   const payload = {
     name: name,
     rent: parseFloat(document.getElementById('locRent').value) || 0,
+    teacherRoomFee: parseFloat(document.getElementById('locTeacherFee').value) || 0,
     note: document.getElementById('locNote').value.trim(),
     aliases: document.getElementById('locAliases').value.split(',').map(function (s) { return s.trim(); }).filter(Boolean)
   };
@@ -1904,7 +2031,6 @@ document.getElementById('grpSaveBtn').addEventListener('click', function () {
     name: name,
     subject: document.getElementById('grpSubject').value.trim(),
     rate: parseFloat(document.getElementById('grpRate').value) || 0,
-    teacherRoomFee: parseFloat(document.getElementById('grpTeacherFee').value) || 0,
     note: document.getElementById('grpNote').value.trim(),
     aliases: document.getElementById('grpAliases').value.split(',').map(function (s) { return s.trim(); }).filter(Boolean)
   };
@@ -1967,6 +2093,7 @@ function refreshSessions() {
       saveCache();
       renderHistory();
       renderSummary();
+      if (State.formAction !== 'new') renderPendingPicker();
     }
   }).catch(function (e) { console.warn('refreshSessions failed, using cache', e); });
 }

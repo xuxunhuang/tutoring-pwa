@@ -35,6 +35,13 @@ const ROWS = {
   SUMMARY_HEADER_ROW: 2, SUMMARY_DATA_ROW: 3       // title(1), headers(2), data(3+)
 };
 
+// ตั้งค่า holds two independent tables side by side on the same rows.
+// Room fee the teacher covers by default lives on the LOCATION now (it's a
+// venue cost, not a subject cost) — editable per-session as an override when
+// a session is actually booked. Groups no longer carry a room-fee field.
+const LOC_COL = { NAME: 1, RENT: 2, TEACHER_FEE: 3, NOTE: 4, ALIASES: 5 };       // A-E
+const GRP_COL = { NAME: 7, SUBJECT: 8, RATE: 9, NOTE: 10, ALIASES: 11 };        // G-K (F is a gap column)
+
 // บันทึกการสอน column indices (1-based, matches spec A-V)
 const SES_COL = {
   DATE_ENTERED: 1,        // A วันที่บันทึกข้อมูล
@@ -263,16 +270,20 @@ function getConfig() {
   if (lastRow < ROWS.SETTINGS_DATA_ROW) return { locations: [], groups: [], bank: {} };
   const numRows = lastRow - ROWS.SETTINGS_DATA_ROW + 1;
 
-  // Locations: columns A-D (1-4). D = aliases (comma-separated shorthand words).
-  const locVals = sh.getRange(ROWS.SETTINGS_DATA_ROW, 1, numRows, 4).getValues();
+  // Locations: columns A-E (1-5). Room fee the teacher covers by default now
+  // lives here (per-venue), not per-group — see LOC_COL comment below.
+  const locVals = sh.getRange(ROWS.SETTINGS_DATA_ROW, LOC_COL.NAME, numRows, 5).getValues();
   const locations = locVals
     .filter(function (r) { return r[0]; })
     .map(function (r) {
-      return { name: String(r[0]), rent: Number(r[1]) || 0, note: String(r[2] || ''), aliases: parseNames_(r[3]) };
+      return {
+        name: String(r[0]), rent: Number(r[1]) || 0, teacherRoomFee: Number(r[2]) || 0,
+        note: String(r[3] || ''), aliases: parseNames_(r[4])
+      };
     });
 
-  // Groups: columns E-J (5-10). J = aliases (comma-separated shorthand words).
-  const grpVals = sh.getRange(ROWS.SETTINGS_DATA_ROW, 5, numRows, 6).getValues();
+  // Groups: columns G-K (7-11), one gap column (F) after locations.
+  const grpVals = sh.getRange(ROWS.SETTINGS_DATA_ROW, GRP_COL.NAME, numRows, 5).getValues();
   const groups = grpVals
     .filter(function (r) { return r[0]; })
     .map(function (r) {
@@ -280,9 +291,8 @@ function getConfig() {
         name: String(r[0]),
         subject: String(r[1]),
         rate: Number(r[2]) || 0,
-        teacherRoomFee: Number(r[3]) || 0,
-        note: String(r[4] || ''),
-        aliases: parseNames_(r[5])
+        note: String(r[3] || ''),
+        aliases: parseNames_(r[4])
       };
     });
 
@@ -404,11 +414,11 @@ function getPayments(studentFilter) {
 // Formula helpers (must match spec exactly)
 // ============================================================================
 
-function lookupLocationRent_(locationName) {
+function lookupLocation_(locationName) {
   const cfg = getConfig();
   const loc = cfg.locations.filter(function (l) { return l.name === locationName; })[0];
   if (!loc) throw new Error('Unknown location: ' + locationName);
-  return loc.rent;
+  return loc;
 }
 
 function lookupGroup_(groupName) {
@@ -419,10 +429,15 @@ function lookupGroup_(groupName) {
 }
 
 // E, F, G, H, O, P, Q, R, S per spec
+// fields.teacherRoomFeeOverride: optional per-session override of the
+// location's default room-fee-covered-by-teacher amount (set at booking time).
 function computeRow_(fields) {
-  const rentTotal = lookupLocationRent_(fields.location);           // E
+  const loc = lookupLocation_(fields.location);
+  const rentTotal = loc.rent;                                        // E
   const grp = lookupGroup_(fields.group);
-  const rentTeacher = grp.teacherRoomFee;                            // F
+  const rentTeacher = (fields.teacherRoomFeeOverride != null && fields.teacherRoomFeeOverride !== '')
+    ? Number(fields.teacherRoomFeeOverride)
+    : loc.teacherRoomFee;                                            // F
   const ratePerHour = grp.rate;                                      // H
   const planCount = fields.planList.length;                          // O
   const attendCount = fields.attendedList.length;                    // P
@@ -582,7 +597,8 @@ function addSession(payload) {
     group: payload.group,
     hours: payload.hours,
     planList: planList,
-    attendedList: attendedList
+    attendedList: attendedList,
+    teacherRoomFeeOverride: payload.teacherRoomFee
   });
 
   const rowIndex = sh.getLastRow() + 1;
@@ -645,7 +661,8 @@ function checkIn(payload) {
     group: existing.group,
     hours: hours,
     planList: planList,
-    attendedList: attendedList
+    attendedList: attendedList,
+    teacherRoomFeeOverride: existing.rentTeacher // honor whatever was decided when this session was booked
   });
 
   const dateAttended = payload.dateAttended || fmtDate_(new Date());
@@ -690,6 +707,13 @@ function findNearestPendingPlanRow_(sh, group, location, date) {
 /** payload: { group, location, date } - finds matching row, sets status cancelled */
 function cancelSession(payload) {
   const sh = sheet_(SHEET_NAMES.SESSIONS);
+  // Prefer an explicit rowIndex (the picker in the app targets an exact row
+  // the user tapped) — fall back to group+location+date matching only for
+  // older callers that don't have a rowIndex handy.
+  if (payload.rowIndex) {
+    sh.getRange(payload.rowIndex, SES_COL.STATUS).setValue(STATUS.CANCELLED);
+    return rowToSessionObj_(sh, payload.rowIndex);
+  }
   const lastRow = sh.getLastRow();
   if (lastRow < ROWS.SESSIONS_DATA_ROW) throw new Error('no matching session found');
   const values = sh.getRange(ROWS.SESSIONS_DATA_ROW, 1, lastRow - ROWS.SESSIONS_DATA_ROW + 1, SES_COL.CLIENT_KEY).getValues();
@@ -718,8 +742,9 @@ function updateSession(payload) {
   const planList = payload.planList || parseNames_(existing.plan);
   const attendedList = payload.attendedList || parseNames_(existing.attended);
   const status = payload.status || existing.status;
+  const teacherRoomFeeOverride = payload.teacherRoomFee != null ? payload.teacherRoomFee : existing.rentTeacher;
 
-  const computed = computeRow_({ location: location, group: group, hours: hours, planList: planList, attendedList: attendedList });
+  const computed = computeRow_({ location: location, group: group, hours: hours, planList: planList, attendedList: attendedList, teacherRoomFeeOverride: teacherRoomFeeOverride });
 
   sh.getRange(rowIndex, SES_COL.GROUP).setValue(group);
   sh.getRange(rowIndex, SES_COL.LOCATION).setValue(location);
@@ -780,18 +805,21 @@ function recordPayment(payload) {
 // ============================================================================
 // Roster management (locations / groups / students) — lets the Settings
 // screen add/edit these in-app instead of requiring direct Sheet access.
-// ตั้งค่า holds TWO independent side-by-side tables (locations in A-D,
-// groups in E-J) that can have different row counts, so appends must find
-// the first empty row within the relevant column, not just use the sheet's
-// overall last row.
+// ตั้งค่า holds TWO independent side-by-side tables (locations in A-E,
+// groups in G-K, F is a gap column) that can have different row counts, so
+// appends must find the first empty row within the relevant column, not
+// just use the sheet's overall last row.
 // ============================================================================
 
 function ensureSettingsAliasHeaders_(sh) {
-  if (!sh.getRange(ROWS.SETTINGS_HEADER_ROW, 4).getValue()) {
-    sh.getRange(ROWS.SETTINGS_HEADER_ROW, 4).setValue('Aliases (คั่นด้วยจุลภาค)');
+  if (!sh.getRange(ROWS.SETTINGS_HEADER_ROW, LOC_COL.TEACHER_FEE).getValue()) {
+    sh.getRange(ROWS.SETTINGS_HEADER_ROW, LOC_COL.TEACHER_FEE).setValue('ครูออกค่าห้อง/ครั้ง (ค่าเริ่มต้น)');
   }
-  if (!sh.getRange(ROWS.SETTINGS_HEADER_ROW, 10).getValue()) {
-    sh.getRange(ROWS.SETTINGS_HEADER_ROW, 10).setValue('Aliases (คั่นด้วยจุลภาค)');
+  if (!sh.getRange(ROWS.SETTINGS_HEADER_ROW, LOC_COL.ALIASES).getValue()) {
+    sh.getRange(ROWS.SETTINGS_HEADER_ROW, LOC_COL.ALIASES).setValue('Aliases (คั่นด้วยจุลภาค)');
+  }
+  if (!sh.getRange(ROWS.SETTINGS_HEADER_ROW, GRP_COL.ALIASES).getValue()) {
+    sh.getRange(ROWS.SETTINGS_HEADER_ROW, GRP_COL.ALIASES).setValue('Aliases (คั่นด้วยจุลภาค)');
   }
 }
 
@@ -820,56 +848,56 @@ function addLocation(payload) {
   if (!payload.name) throw new Error('name required');
   const sh = sheet_(SHEET_NAMES.SETTINGS);
   ensureSettingsAliasHeaders_(sh);
-  if (findSettingsRowByName_(sh, 1, payload.name) > 0) throw new Error('มีสถานที่ชื่อนี้อยู่แล้ว');
-  const rowIndex = firstEmptyRowInColumn_(sh, 1, ROWS.SETTINGS_DATA_ROW);
-  sh.getRange(rowIndex, 1, 1, 4).setValues([[
-    payload.name, Number(payload.rent) || 0, payload.note || '', (payload.aliases || []).join(', ')
+  if (findSettingsRowByName_(sh, LOC_COL.NAME, payload.name) > 0) throw new Error('มีสถานที่ชื่อนี้อยู่แล้ว');
+  const rowIndex = firstEmptyRowInColumn_(sh, LOC_COL.NAME, ROWS.SETTINGS_DATA_ROW);
+  sh.getRange(rowIndex, LOC_COL.NAME, 1, 5).setValues([[
+    payload.name, Number(payload.rent) || 0, Number(payload.teacherRoomFee) || 0, payload.note || '', (payload.aliases || []).join(', ')
   ]]);
   return { name: payload.name };
 }
 
-/** payload: { originalName, name, rent, note, aliases: [] } */
+/** payload: { originalName, name, rent, teacherRoomFee, note, aliases: [] } */
 function updateLocation(payload) {
   const sh = sheet_(SHEET_NAMES.SETTINGS);
   ensureSettingsAliasHeaders_(sh);
-  const rowIndex = findSettingsRowByName_(sh, 1, payload.originalName);
+  const rowIndex = findSettingsRowByName_(sh, LOC_COL.NAME, payload.originalName);
   if (rowIndex < 0) throw new Error('ไม่พบสถานที่: ' + payload.originalName);
   if (payload.name !== payload.originalName) {
-    const collision = findSettingsRowByName_(sh, 1, payload.name);
+    const collision = findSettingsRowByName_(sh, LOC_COL.NAME, payload.name);
     if (collision > 0 && collision !== rowIndex) throw new Error('มีสถานที่ชื่อนี้อยู่แล้ว');
   }
-  sh.getRange(rowIndex, 1, 1, 4).setValues([[
-    payload.name, Number(payload.rent) || 0, payload.note || '', (payload.aliases || []).join(', ')
+  sh.getRange(rowIndex, LOC_COL.NAME, 1, 5).setValues([[
+    payload.name, Number(payload.rent) || 0, Number(payload.teacherRoomFee) || 0, payload.note || '', (payload.aliases || []).join(', ')
   ]]);
   return { name: payload.name };
 }
 
-/** payload: { name, subject, rate, teacherRoomFee, note, aliases: [] } */
+/** payload: { name, subject, rate, note, aliases: [] } */
 function addGroup(payload) {
   if (!payload.name) throw new Error('name required');
   const sh = sheet_(SHEET_NAMES.SETTINGS);
   ensureSettingsAliasHeaders_(sh);
-  if (findSettingsRowByName_(sh, 5, payload.name) > 0) throw new Error('มีกลุ่มชื่อนี้อยู่แล้ว');
-  const rowIndex = firstEmptyRowInColumn_(sh, 5, ROWS.SETTINGS_DATA_ROW);
-  sh.getRange(rowIndex, 5, 1, 6).setValues([[
-    payload.name, payload.subject || '', Number(payload.rate) || 0, Number(payload.teacherRoomFee) || 0,
+  if (findSettingsRowByName_(sh, GRP_COL.NAME, payload.name) > 0) throw new Error('มีกลุ่มชื่อนี้อยู่แล้ว');
+  const rowIndex = firstEmptyRowInColumn_(sh, GRP_COL.NAME, ROWS.SETTINGS_DATA_ROW);
+  sh.getRange(rowIndex, GRP_COL.NAME, 1, 5).setValues([[
+    payload.name, payload.subject || '', Number(payload.rate) || 0,
     payload.note || '', (payload.aliases || []).join(', ')
   ]]);
   return { name: payload.name };
 }
 
-/** payload: { originalName, name, subject, rate, teacherRoomFee, note, aliases: [] } */
+/** payload: { originalName, name, subject, rate, note, aliases: [] } */
 function updateGroup(payload) {
   const sh = sheet_(SHEET_NAMES.SETTINGS);
   ensureSettingsAliasHeaders_(sh);
-  const rowIndex = findSettingsRowByName_(sh, 5, payload.originalName);
+  const rowIndex = findSettingsRowByName_(sh, GRP_COL.NAME, payload.originalName);
   if (rowIndex < 0) throw new Error('ไม่พบกลุ่ม: ' + payload.originalName);
   if (payload.name !== payload.originalName) {
-    const collision = findSettingsRowByName_(sh, 5, payload.name);
+    const collision = findSettingsRowByName_(sh, GRP_COL.NAME, payload.name);
     if (collision > 0 && collision !== rowIndex) throw new Error('มีกลุ่มชื่อนี้อยู่แล้ว');
   }
-  sh.getRange(rowIndex, 5, 1, 6).setValues([[
-    payload.name, payload.subject || '', Number(payload.rate) || 0, Number(payload.teacherRoomFee) || 0,
+  sh.getRange(rowIndex, GRP_COL.NAME, 1, 5).setValues([[
+    payload.name, payload.subject || '', Number(payload.rate) || 0,
     payload.note || '', (payload.aliases || []).join(', ')
   ]]);
   return { name: payload.name };
@@ -931,7 +959,7 @@ function updateStudent(payload) {
 
 // Deletes one row's worth of data within a single column range only, shifting
 // everything below it up. Plain sh.deleteRow() would be WRONG for ตั้งค่า:
-// locations (A-D) and groups (E-J) are two independent tables sharing the
+// locations (A-E) and groups (G-K) are two independent tables sharing the
 // same physical rows, so deleting a whole row would silently corrupt
 // whichever table wasn't being edited.
 function deleteRowInColumnRange_(sh, startCol, numCols, targetRow) {
@@ -949,18 +977,18 @@ function deleteRowInColumnRange_(sh, startCol, numCols, targetRow) {
  * this is safe even if old records reference the deleted name. */
 function deleteLocation(payload) {
   const sh = sheet_(SHEET_NAMES.SETTINGS);
-  const rowIndex = findSettingsRowByName_(sh, 1, payload.name);
+  const rowIndex = findSettingsRowByName_(sh, LOC_COL.NAME, payload.name);
   if (rowIndex < 0) throw new Error('ไม่พบสถานที่: ' + payload.name);
-  deleteRowInColumnRange_(sh, 1, 4, rowIndex);
+  deleteRowInColumnRange_(sh, LOC_COL.NAME, 5, rowIndex);
   return { deleted: true, name: payload.name };
 }
 
 /** payload: { name } */
 function deleteGroup(payload) {
   const sh = sheet_(SHEET_NAMES.SETTINGS);
-  const rowIndex = findSettingsRowByName_(sh, 5, payload.name);
+  const rowIndex = findSettingsRowByName_(sh, GRP_COL.NAME, payload.name);
   if (rowIndex < 0) throw new Error('ไม่พบกลุ่ม: ' + payload.name);
-  deleteRowInColumnRange_(sh, 5, 6, rowIndex);
+  deleteRowInColumnRange_(sh, GRP_COL.NAME, 5, rowIndex);
   return { deleted: true, name: payload.name };
 }
 
