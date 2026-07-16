@@ -1,14 +1,24 @@
 /**
  * Service worker for ติดตามเรียนพิเศษ - Tutor Dispatch PWA.
  * Strategy:
- *  - App shell (index.html, manifest, this file): cache-first, falls back to network.
+ *  - App shell (index.html, manifest, this file): network-first, falls back to
+ *    cache only when offline. (Was cache-first — meant a returning user with
+ *    an already-installed SW would NEVER see a new deploy, since nothing ever
+ *    re-fetched index.html once it was cached once. This app ships updates
+ *    often; staleness is a worse failure mode than one extra network hop.)
  *  - GAS API calls (anything to a URL containing '/exec' or '/macros/'): network-first,
  *    falling back to cache for GET reads when offline. POSTs are NOT cached here —
  *    offline POST queueing/retry is handled in index.html (localStorage queue),
  *    this SW only helps GET reads work offline.
+ *
+ * IMPORTANT: bump CACHE_NAME (vN -> vN+1) whenever you change this file, so
+ * browsers that already have an old service worker installed detect the
+ * byte-level change, cycle through install/activate again, and clear the old
+ * cache via the activate handler below. Without a bump, an already-cached
+ * client's SW registration looks byte-identical and never re-installs.
  */
 
-const CACHE_NAME = 'tutor-dispatch-v1';
+const CACHE_NAME = 'tutor-dispatch-v2';
 const APP_SHELL = [
   './index.html',
   './manifest.webmanifest'
@@ -62,17 +72,15 @@ self.addEventListener('fetch', function (event) {
     return;
   }
 
-  // App shell: cache-first.
+  // App shell: network-first, so a deployed update is visible on next load
+  // for anyone online — falls back to cache only when the fetch itself fails.
   event.respondWith(
-    caches.match(req).then(function (cached) {
-      if (cached) return cached;
-      return fetch(req).then(function (res) {
-        const resClone = res.clone();
-        caches.open(CACHE_NAME).then(function (cache) { cache.put(req, resClone); });
-        return res;
-      }).catch(function () {
-        return cached;
-      });
+    fetch(req).then(function (res) {
+      const resClone = res.clone();
+      caches.open(CACHE_NAME).then(function (cache) { cache.put(req, resClone); });
+      return res;
+    }).catch(function () {
+      return caches.match(req);
     })
   );
 });

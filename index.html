@@ -2126,6 +2126,17 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   window.addEventListener('load', function () {
     navigator.serviceWorker.register('./sw.js').catch(function (e) { console.warn('SW registration failed', e); });
   });
+  // A new SW version (see sw.js CACHE_NAME) calls skipWaiting()+clients.claim(),
+  // which fires 'controllerchange' once it takes over. Auto-reload so a
+  // deployed update is visible without the user needing a manual second
+  // reload — guarded to fire at most once per page load, since
+  // controllerchange can in principle fire more than once.
+  let swReloaded = false;
+  navigator.serviceWorker.addEventListener('controllerchange', function () {
+    if (swReloaded) return;
+    swReloaded = true;
+    location.reload();
+  });
 }
 
 /* ============================================================================
